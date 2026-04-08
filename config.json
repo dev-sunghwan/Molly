@@ -1,0 +1,14 @@
+{
+  "timezone": "Europe/London",
+  "calendars": {
+    "sunghwan": "REPLACE_WITH_SUNGHWAN_CALENDAR_ID",
+    "jeeyoung": "REPLACE_WITH_JEEYOUNG_CALENDAR_ID",
+    "younha":   "REPLACE_WITH_YOUNHA_CALENDAR_ID",
+    "haneul":   "REPLACE_WITH_HANEUL_CALENDAR_ID",
+    "younho":   "REPLACE_WITH_YOUNHO_CALENDAR_ID",
+    "family":   "REPLACE_WITH_FAMILY_CALENDAR_ID"
+  },
+  "allowed_user_ids": [
+    0
+  ]
+}
