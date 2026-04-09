@@ -148,7 +148,10 @@ def main():
     log.info("Molly is running. Waiting for Telegram messages...")
     app.run_polling()
 
-    scheduler.shutdown(wait=False)
+    try:
+        scheduler.shutdown(wait=False)
+    except Exception:
+        pass  # event loop already closed on exit — harmless
     log.info("Molly shutting down.")
 
 
