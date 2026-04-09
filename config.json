@@ -10,5 +10,9 @@
   },
   "allowed_user_ids": [
     8289608844
-  ]
+  ],
+  "scheduler": {
+    "daily_summary_time": "08:00",
+    "reminder_minutes_before": 60
+  }
 }

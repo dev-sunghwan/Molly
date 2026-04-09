@@ -28,6 +28,18 @@ _DAY_NAMES = {
     "fri": 4, "sat": 5, "sun": 6,
 }
 
+# Maps 3-letter day names to RFC 5545 BYDAY codes (for RRULE in recurring events)
+_DAY_TO_RRULE = {
+    "mon": "MO", "tue": "TU", "wed": "WE", "thu": "TH",
+    "fri": "FR", "sat": "SA", "sun": "SU",
+}
+
+
+def day_name_to_rrule(day: str) -> str | None:
+    """Convert a day name token (e.g. 'Mon', 'monday') to an RFC 5545 BYDAY code.
+    Returns None if unrecognised."""
+    return _DAY_TO_RRULE.get(day.strip().lower()[:3])
+
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 

@@ -22,17 +22,26 @@ USAGE = (
     "  week                         — this week's events\n"
     "  <date>                       — events on a specific date\n"
     "\n"
-    "  add <calendar> <title> <date> <time>\n"
-    "  add <calendar> <title> <time>      (date defaults to today)\n"
+    "  add <calendar> <title> <date> <time>   — timed event\n"
+    "  add <calendar> <title> <time>          — timed event (date = today)\n"
+    "  add <calendar> <title> <date>          — all-day event\n"
+    "  add <calendar> <title>                 — all-day event (today)\n"
+    "  add <calendar> <title> every <day> <time>  — weekly recurring\n"
+    "  add <calendar> <title> every <day>         — all-day weekly recurring\n"
     "    calendar : " + ", ".join(config.VALID_CALENDAR_NAMES) + "\n"
     "    date     : today | tomorrow | Mon-Sun | DD-MM-YYYY\n"
-    "    time     : HH:MM-HH:MM  or  HH:MM (default +1h)\n"
+    "               Mon-Sun = next occurrence of that weekday (today if already that day)\n"
+    "    time     : HH:MM-HH:MM  or  HH:MM (event duration defaults to +1h)\n"
+    "               Times are in local time — DST is handled automatically\n"
     "\n"
     "  delete <calendar> <date> <title>  — delete an event\n"
     "\n"
     "Examples:\n"
     "  add YounHa tennis tomorrow 17:00-18:00\n"
     "  add SungHwan dentist 14:00\n"
+    "  add Family BBQ Sat                    (all-day, next Saturday)\n"
+    "  add YounHa tennis every Mon 17:00-18:00\n"
+    "  add HaNeul swimming every Wed         (all-day every Wednesday)\n"
     "  delete SungHwan today dentist\n"
     "  Fri\n"
     "  09-04-2026"
@@ -86,29 +95,34 @@ def parse(text: str) -> dict:
 def _parse_add(text: str) -> dict:
     """
     Parse the 'add' command.
-    Layout with date:    add <calendar> <title...> <date> <time>
-    Layout without date: add <calendar> <title...> <time>   (defaults to today)
+
+    Supported layouts:
+      add <cal> <title> <date> <time>   — timed event on a specific date
+      add <cal> <title> <time>          — timed event today
+      add <cal> <title> <date>          — all-day event on a specific date
+      add <cal> <title>                 — all-day event today
+      add <cal> <title> every <day> <time>  — weekly recurring timed event
+      add <cal> <title> every <day>         — weekly recurring all-day event
     """
     rest = text[4:].strip()
     tokens = rest.split()
 
-    # Minimum: calendar title time → 3 tokens
-    if len(tokens) < 3:
+    # Need at minimum: calendar + title (2 tokens)
+    if len(tokens) < 2:
         return {
             "error": (
                 "❌ Not enough arguments.\n\n"
                 "Usage: add <calendar> <title> <date> <time>\n"
-                "   or: add <calendar> <title> <time>  (defaults to today)\n"
+                "   or: add <calendar> <title>  (all-day event today)\n"
                 "Example: add YounHa tennis tomorrow 17:00-18:00\n"
-                "Example: add SungHwan dentist 14:00"
+                "Example: add Family BBQ Sat"
             )
         }
 
     cal_token = tokens[0]
-    time_token = tokens[-1]
+    cal_key = cal_token.lower()
 
     # ── Validate calendar name ────────────────────────────────────────────────
-    cal_key = cal_token.lower()
     if cal_key not in config.CALENDARS:
         valid = ", ".join(config.VALID_CALENDAR_NAMES)
         return {
@@ -118,41 +132,142 @@ def _parse_add(text: str) -> dict:
             )
         }
 
-    # ── Determine date and title ──────────────────────────────────────────────
-    # If tokens[-2] parses as a date, use it; otherwise default to today.
-    if len(tokens) >= 4 and utils.parse_date(tokens[-2]) is not None:
-        event_date = utils.parse_date(tokens[-2])
-        title_tokens = tokens[1:-2]
-    else:
-        event_date = utils._today_local()
+    # ── Detect recurring: "every" keyword ────────────────────────────────────
+    lower_tokens = [t.lower() for t in tokens]
+    if "every" in lower_tokens:
+        return _parse_add_recurring(tokens, cal_key, cal_token)
+
+    # ── Non-recurring: classify the last token ────────────────────────────────
+    last = tokens[-1]
+    last_is_time = utils.parse_time(last) is not None
+    last_is_date = utils.parse_date(last.lower()) is not None
+
+    if last_is_time:
+        # Timed event — check if second-to-last token is a date
+        if len(tokens) >= 4 and utils.parse_date(tokens[-2].lower()) is not None:
+            event_date = utils.parse_date(tokens[-2].lower())
+            title_tokens = tokens[1:-2]
+        else:
+            event_date = utils._today_local()
+            title_tokens = tokens[1:-1]
+
+        title = " ".join(title_tokens).strip()
+        if not title:
+            return {"error": "❌ Event title cannot be empty.\nUsage: add <calendar> <title> <time>"}
+
+        start_time, end_time = utils.parse_time(last)
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": event_date,
+            "start": start_time,
+            "end": end_time,
+        }
+
+    elif last_is_date:
+        # All-day event on a specific date
+        event_date = utils.parse_date(last.lower())
         title_tokens = tokens[1:-1]
+        title = " ".join(title_tokens).strip()
+        if not title:
+            return {"error": "❌ Event title cannot be empty.\nUsage: add <calendar> <title> <date>"}
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": event_date,
+            "all_day": True,
+        }
 
-    title = " ".join(title_tokens).strip()
+    elif len(tokens) == 2:
+        # Only calendar + title → all-day event today
+        title = tokens[1]
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": utils._today_local(),
+            "all_day": True,
+        }
 
-    # ── Validate title ────────────────────────────────────────────────────────
-    if not title:
-        return {"error": "❌ Event title cannot be empty.\nUsage: add <calendar> <title> <time>"}
-
-    # ── Validate time ─────────────────────────────────────────────────────────
-    time_result = utils.parse_time(time_token)
-    if time_result is None:
+    else:
         return {
             "error": (
-                f"❌ Could not parse time: '{time_token}'\n"
+                f"❌ Could not parse time: '{last}'\n"
                 "Accepted formats: HH:MM-HH:MM  or  HH:MM"
             )
         }
-    start_time, end_time = time_result
 
-    return {
-        "cmd": "add",
-        "calendar": cal_key,
-        "calendar_display": cal_token,
-        "title": title,
-        "date": event_date,
-        "start": start_time,
-        "end": end_time,
-    }
+
+def _parse_add_recurring(tokens: list, cal_key: str, cal_token: str) -> dict:
+    """
+    Parse: add <cal> <title> every <day> [<time>]
+    tokens[0] is the calendar (already validated by caller).
+    """
+    lower_tokens = [t.lower() for t in tokens]
+    every_idx = lower_tokens.index("every")
+
+    # Title is everything between calendar and "every"
+    title_tokens = tokens[1:every_idx]
+    title = " ".join(title_tokens).strip()
+    if not title:
+        return {"error": "❌ Event title cannot be empty before 'every'.\nExample: add YounHa tennis every Mon 17:00-18:00"}
+
+    after_every = tokens[every_idx + 1:]
+    if not after_every:
+        return {"error": "❌ Expected a day name after 'every'.\nExample: add YounHa tennis every Mon 17:00-18:00"}
+
+    day_token = after_every[0]
+    rrule_day = utils.day_name_to_rrule(day_token)
+    if rrule_day is None:
+        return {
+            "error": (
+                f"❌ Unrecognised day name: '{day_token}'\n"
+                "Use: Mon Tue Wed Thu Fri Sat Sun"
+            )
+        }
+
+    # First occurrence = next occurrence of that weekday (reuses existing logic)
+    first_date = utils.parse_date(day_token.lower())
+    recurrence = [f"RRULE:FREQ=WEEKLY;BYDAY={rrule_day}"]
+
+    if len(after_every) >= 2:
+        # Timed recurring event
+        time_token = after_every[-1]
+        time_result = utils.parse_time(time_token)
+        if time_result is None:
+            return {
+                "error": (
+                    f"❌ Could not parse time: '{time_token}'\n"
+                    "Accepted formats: HH:MM-HH:MM  or  HH:MM"
+                )
+            }
+        start_time, end_time = time_result
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": first_date,
+            "start": start_time,
+            "end": end_time,
+            "recurrence": recurrence,
+        }
+    else:
+        # All-day recurring event
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": first_date,
+            "all_day": True,
+            "recurrence": recurrence,
+        }
 
 
 def _parse_delete(text: str) -> dict:

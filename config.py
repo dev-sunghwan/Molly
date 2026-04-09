@@ -32,6 +32,11 @@ CALENDAR_DISPLAY_NAMES: dict[str, str] = {k.lower(): k for k in _cfg["calendars"
 # Set of Telegram user IDs that are allowed to use the bot
 ALLOWED_USER_IDS: set[int] = set(_cfg.get("allowed_user_ids", []))
 
+# Scheduler settings
+_sched = _cfg.get("scheduler", {})
+SCHEDULER_SUMMARY_TIME: str     = _sched.get("daily_summary_time", "08:00")
+SCHEDULER_REMINDER_MINUTES: int = int(_sched.get("reminder_minutes_before", 60))
+
 # ── Derived helpers ───────────────────────────────────────────────────────────
 VALID_CALENDAR_NAMES: list[str] = list(_cfg["calendars"].keys())  # original casing
 

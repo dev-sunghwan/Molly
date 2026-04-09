@@ -143,32 +143,42 @@ def add_event(service, cmd: dict) -> str:
     """
     Insert an event into the specified calendar.
     cmd comes from commands.parse() with cmd["cmd"] == "add".
+    Supports timed events, all-day events, and weekly recurring events.
     Returns a confirmation string to send back via Telegram.
     """
     cal_id = config.CALENDARS[cmd["calendar"]]
-    start_dt = utils.make_datetime(cmd["date"], cmd["start"])
-    end_dt   = utils.make_datetime(cmd["date"], cmd["end"])
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cmd["calendar"], cmd["calendar"])
+    all_day = cmd.get("all_day", False)
 
-    event_body = {
-        "summary": cmd["title"],
-        "start": {
-            "dateTime": start_dt.isoformat(),
-            "timeZone": config.TIMEZONE,
-        },
-        "end": {
-            "dateTime": end_dt.isoformat(),
-            "timeZone": config.TIMEZONE,
-        },
-    }
+    if all_day:
+        date_str = cmd["date"].strftime("%Y-%m-%d")
+        event_body = {
+            "summary": cmd["title"],
+            "start": {"date": date_str},
+            "end":   {"date": date_str},
+        }
+        reply_time_str = "All day"
+    else:
+        start_dt = utils.make_datetime(cmd["date"], cmd["start"])
+        end_dt   = utils.make_datetime(cmd["date"], cmd["end"])
+        event_body = {
+            "summary": cmd["title"],
+            "start": {"dateTime": start_dt.isoformat(), "timeZone": config.TIMEZONE},
+            "end":   {"dateTime": end_dt.isoformat(),   "timeZone": config.TIMEZONE},
+        }
+        reply_time_str = f"{cmd['start']}–{cmd['end']}"
+
+    if "recurrence" in cmd:
+        event_body["recurrence"] = cmd["recurrence"]
 
     try:
-        created = service.events().insert(calendarId=cal_id, body=event_body).execute()
-        date_str = cmd["date"].strftime("%d-%m-%Y")
-        cal_display = config.CALENDAR_DISPLAY_NAMES.get(cmd["calendar"], cmd["calendar"])
+        service.events().insert(calendarId=cal_id, body=event_body).execute()
+        date_str_display = cmd["date"].strftime("%d-%m-%Y")
+        recurring_label = "  (weekly recurring)" if "recurrence" in cmd else ""
         return (
             f"✅ Added to {cal_display}:\n"
             f"  {cmd['title']}\n"
-            f"  {date_str}  {cmd['start']}–{cmd['end']}"
+            f"  {date_str_display}  {reply_time_str}{recurring_label}"
         )
     except HttpError as e:
         return f"❌ Failed to add event: {e}"

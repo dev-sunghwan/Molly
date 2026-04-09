@@ -17,6 +17,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import calendar_client
 import commands
 import config
+import scheduler as sched_module
 import utils
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -129,8 +130,19 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Start APScheduler (daily summary + per-event reminders)
+    scheduler = sched_module.create_scheduler(gcal_service, app.bot)
+    scheduler.start()
+    log.info(
+        "Scheduler started — daily summary at %s, reminders %d min before.",
+        config.SCHEDULER_SUMMARY_TIME,
+        config.SCHEDULER_REMINDER_MINUTES,
+    )
+
     log.info("Molly is running. Waiting for Telegram messages...")
     app.run_polling()
+
+    scheduler.shutdown(wait=False)
     log.info("Molly shutting down.")
 
 

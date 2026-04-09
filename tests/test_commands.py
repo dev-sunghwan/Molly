@@ -153,6 +153,66 @@ def test_delete_missing_tokens():
     assert "error" in result
 
 
+# ── all-day events ────────────────────────────────────────────────────────────
+
+def test_add_all_day_with_date():
+    result = commands.parse("add Family BBQ Sat")
+    assert result["cmd"] == "add"
+    assert result.get("all_day") is True
+    assert result.get("start") is None
+    assert result["title"] == "BBQ"
+    delta = (result["date"] - today()).days
+    assert 0 <= delta <= 6  # next Saturday
+
+def test_add_all_day_today_implicit():
+    result = commands.parse("add SungHwan holiday")
+    assert result["cmd"] == "add"
+    assert result.get("all_day") is True
+    assert result["date"] == today()
+    assert result["title"] == "holiday"
+
+def test_add_all_day_explicit_date():
+    result = commands.parse("add Family BBQ 25-12-2026")
+    assert result["cmd"] == "add"
+    assert result.get("all_day") is True
+    assert result["date"] == date(2026, 12, 25)
+    assert result["title"] == "BBQ"
+
+
+# ── recurring events ──────────────────────────────────────────────────────────
+
+def test_add_recurring_timed():
+    result = commands.parse("add YounHa tennis every Mon 17:00-18:00")
+    assert result["cmd"] == "add"
+    assert result["title"] == "tennis"
+    assert result["start"] == "17:00"
+    assert result["end"] == "18:00"
+    assert result["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=MO"]
+    assert result["date"].weekday() == 0  # Monday
+
+def test_add_recurring_all_day():
+    result = commands.parse("add HaNeul swimming every Wed")
+    assert result["cmd"] == "add"
+    assert result.get("all_day") is True
+    assert result["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=WE"]
+    assert result["date"].weekday() == 2  # Wednesday
+
+def test_add_recurring_multiword_title():
+    result = commands.parse("add Family Sunday roast every Sun 13:00-15:00")
+    assert result["cmd"] == "add"
+    assert result["title"] == "Sunday roast"
+    assert result["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=SU"]
+
+def test_add_recurring_bad_day():
+    result = commands.parse("add YounHa tennis every Xyz 17:00")
+    assert "error" in result
+
+def test_add_recurring_no_title():
+    result = commands.parse("add YounHa every Mon 17:00")
+    assert "error" in result
+    assert "title" in result["error"].lower()
+
+
 # ── unrecognised input ────────────────────────────────────────────────────────
 
 def test_unknown_command():
@@ -177,6 +237,9 @@ if __name__ == "__main__":
         test_date_query_ddmmyyyy, test_date_query_day_name,
         test_delete_basic, test_delete_multiword_title, test_delete_unknown_calendar,
         test_delete_bad_date, test_delete_missing_tokens,
+        test_add_all_day_with_date, test_add_all_day_today_implicit, test_add_all_day_explicit_date,
+        test_add_recurring_timed, test_add_recurring_all_day, test_add_recurring_multiword_title,
+        test_add_recurring_bad_day, test_add_recurring_no_title,
         test_unknown_command, test_empty_string,
     ]
     passed = failed = 0
