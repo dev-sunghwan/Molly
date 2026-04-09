@@ -8,7 +8,7 @@ Public API:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytz
 from google.auth.transport.requests import Request
@@ -186,9 +186,12 @@ def add_event(service, cmd: dict) -> str:
 
 # ── Edit event ───────────────────────────────────────────────────────────────
 
-def find_and_edit_event(service, cal_key: str, target_date: date, title: str, changes: dict) -> str:
+def find_and_edit_event(service, cal_key: str, target_date: date | None, title: str, changes: dict) -> str:
     """
-    Find an event by calendar, date, and title, then apply changes.
+    Find an event by calendar and title, then apply changes.
+
+    target_date: if provided, search only that day.
+                 if None, search the next 90 days (upcoming events).
 
     changes keys (all optional):
       "start", "end"  — new time strings "HH:MM"
@@ -197,15 +200,24 @@ def find_and_edit_event(service, cal_key: str, target_date: date, title: str, ch
 
     - 0 matches → not found message
     - 1 match   → patched, confirmation
-    - 2+ matches → list them, nothing changed
+    - 2+ matches → list them with dates, nothing changed
     """
     cal_id = config.CALENDARS[cal_key]
     cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
-    date_str = target_date.strftime("%d-%m-%Y")
     tz = utils.TZ
 
-    time_min = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)).isoformat()
-    time_max = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)).isoformat()
+    if target_date is not None:
+        date_str = target_date.strftime("%d-%m-%Y")
+        time_min = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)).isoformat()
+        time_max = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)).isoformat()
+        search_desc = f"on {date_str}"
+    else:
+        today = utils._today_local()
+        end = today + timedelta(days=90)
+        time_min = tz.localize(datetime(today.year, today.month, today.day, 0, 0, 0)).isoformat()
+        time_max = tz.localize(datetime(end.year, end.month, end.day, 23, 59, 59)).isoformat()
+        date_str = None
+        search_desc = "in the next 90 days"
 
     try:
         result = (
@@ -223,17 +235,17 @@ def find_and_edit_event(service, cal_key: str, target_date: date, title: str, ch
         matches = [e for e in events if e.get("summary", "").lower() == title.lower()]
 
         if not matches:
-            return f"❌ No event '{title}' found in {cal_display} on {date_str}"
+            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
 
         if len(matches) > 1:
-            lines = [f"❌ Multiple events named '{title}' on {date_str} in {cal_display}. Nothing changed:"]
+            lines = [f"❌ Multiple events named '{title}' in {cal_display}. Nothing changed. Specify a date:\n"]
             for e in matches:
                 start = e.get("start", {})
                 if "dateTime" in start:
-                    t = datetime.fromisoformat(start["dateTime"]).astimezone(tz).strftime("%H:%M")
-                    lines.append(f"  • {t}  {e.get('summary')}")
+                    dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+                    lines.append(f"  • {dt.strftime('%d-%m-%Y')}  {dt.strftime('%H:%M')}  {e.get('summary')}")
                 else:
-                    lines.append(f"  • All day  {e.get('summary')}")
+                    lines.append(f"  • {start.get('date', '?')}  All day  {e.get('summary')}")
             return "\n".join(lines)
 
         event = matches[0]

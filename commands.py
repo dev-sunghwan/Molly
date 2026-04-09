@@ -280,7 +280,10 @@ def _parse_add_recurring(tokens: list, cal_key: str, cal_token: str) -> dict:
 
 def _parse_edit(text: str) -> dict:
     """
-    Parse: edit <calendar> <date> <title> <field> <new_value>
+    Parse: edit <calendar> [<date>] <title> <field> <new_value>
+
+    Date is optional. If omitted, calendar_client will search upcoming events
+    by title. If provided, it narrows the search to that specific date.
 
     Supported fields:
       time  <HH:MM-HH:MM | HH:MM>  — change start/end time
@@ -290,16 +293,18 @@ def _parse_edit(text: str) -> dict:
     rest = text[5:].strip()  # len("edit ") == 5
     tokens = rest.split()
 
-    # Minimum: cal + date + title + field + value = 5 tokens
-    if len(tokens) < 5:
+    # Minimum: cal + title + field + value = 4 tokens
+    if len(tokens) < 4:
         return {
             "error": (
                 "❌ Not enough arguments.\n\n"
                 "Usage:\n"
+                "  edit <calendar> <title> time <new_time>\n"
+                "  edit <calendar> <title> date <new_date>\n"
+                "  edit <calendar> <title> title <new_title>\n"
+                "  (optional) include date after calendar to narrow search:\n"
                 "  edit <calendar> <date> <title> time <new_time>\n"
-                "  edit <calendar> <date> <title> date <new_date>\n"
-                "  edit <calendar> <date> <title> title <new_title>\n"
-                "Example: edit SungHwan today dentist time 15:00-16:00"
+                "Example: edit SungHwan dentist time 15:00-16:00"
             )
         }
 
@@ -315,35 +320,34 @@ def _parse_edit(text: str) -> dict:
             )
         }
 
-    date_token = tokens[1]
-    event_date = utils.parse_date(date_token)
-    if event_date is None:
-        return {
-            "error": (
-                f"❌ Could not parse date: '{date_token}'\n"
-                "Accepted formats: today, tomorrow, Mon-Sun, DD-MM-YYYY"
-            )
-        }
+    # Optional date: check if tokens[1] parses as a date
+    maybe_date = utils.parse_date(tokens[1].lower())
+    if maybe_date is not None:
+        event_date = maybe_date
+        title_start = 2
+    else:
+        event_date = None   # search upcoming events by title
+        title_start = 1
 
     # Scan for the field keyword (time / date / title) from the right so that
     # multi-word event titles work correctly.
     field_keywords = {"time", "date", "title"}
     field_idx = None
-    for i in range(len(tokens) - 1, 2, -1):
+    for i in range(len(tokens) - 1, title_start, -1):
         if tokens[i].lower() in field_keywords:
             field_idx = i
             break
 
-    if field_idx is None or field_idx <= 2:
+    if field_idx is None or field_idx <= title_start:
         return {
             "error": (
                 "❌ Missing field keyword.\n"
                 "Specify what to change: time, date, or title\n"
-                "Example: edit SungHwan today dentist time 15:00"
+                "Example: edit SungHwan dentist time 15:00"
             )
         }
 
-    event_title = " ".join(tokens[2:field_idx]).strip()
+    event_title = " ".join(tokens[title_start:field_idx]).strip()
     if not event_title:
         return {"error": "❌ Event title cannot be empty."}
 
@@ -386,7 +390,7 @@ def _parse_edit(text: str) -> dict:
     return {
         "cmd": "edit",
         "calendar": cal_key,
-        "date": event_date,
+        "date": event_date,   # None = search upcoming
         "title": event_title,
         "changes": changes,
     }

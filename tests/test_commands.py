@@ -215,7 +215,8 @@ def test_add_recurring_no_title():
 
 # ── edit ─────────────────────────────────────────────────────────────────────
 
-def test_edit_time():
+def test_edit_time_with_date():
+    # date provided → narrow search to that day
     result = commands.parse("edit SungHwan today dentist time 15:00-16:00")
     assert result["cmd"] == "edit"
     assert result["calendar"] == "sunghwan"
@@ -223,39 +224,50 @@ def test_edit_time():
     assert result["title"] == "dentist"
     assert result["changes"] == {"start": "15:00", "end": "16:00"}
 
-def test_edit_date():
-    result = commands.parse("edit YounHa tomorrow tennis date Sat")
+def test_edit_time_without_date():
+    # no date → search upcoming events
+    result = commands.parse("edit SungHwan dentist time 15:00-16:00")
+    assert result["cmd"] == "edit"
+    assert result["date"] is None
+    assert result["title"] == "dentist"
+    assert result["changes"] == {"start": "15:00", "end": "16:00"}
+
+def test_edit_date_field():
+    result = commands.parse("edit YounHa tennis date Sat")
     assert result["cmd"] == "edit"
     assert result["title"] == "tennis"
-    assert "date" in result["changes"]
+    assert result["date"] is None  # no search-date given
     assert result["changes"]["date"].weekday() == 5  # Saturday
 
-def test_edit_title():
-    result = commands.parse("edit SungHwan today dentist title check-up")
+def test_edit_title_field():
+    result = commands.parse("edit SungHwan dentist title check-up")
     assert result["cmd"] == "edit"
     assert result["title"] == "dentist"
     assert result["changes"] == {"title": "check-up"}
 
 def test_edit_multiword_title():
-    result = commands.parse("edit Family today Sunday roast title Sunday BBQ")
+    result = commands.parse("edit Family Sunday roast title Sunday BBQ")
     assert result["cmd"] == "edit"
     assert result["title"] == "Sunday roast"
     assert result["changes"] == {"title": "Sunday BBQ"}
 
-def test_edit_unknown_calendar():
-    result = commands.parse("edit NoName today event time 10:00")
-    assert "error" in result
+def test_edit_multiword_title_with_date():
+    result = commands.parse("edit Family today Sunday roast title Sunday BBQ")
+    assert result["cmd"] == "edit"
+    assert result["date"] == today()
+    assert result["title"] == "Sunday roast"
+    assert result["changes"] == {"title": "Sunday BBQ"}
 
-def test_edit_bad_date():
-    result = commands.parse("edit SungHwan baddate event time 10:00")
+def test_edit_unknown_calendar():
+    result = commands.parse("edit NoName event time 10:00")
     assert "error" in result
 
 def test_edit_missing_field():
-    result = commands.parse("edit SungHwan today dentist")
+    result = commands.parse("edit SungHwan dentist")
     assert "error" in result
 
 def test_edit_single_time():
-    result = commands.parse("edit SungHwan today dentist time 15:00")
+    result = commands.parse("edit SungHwan dentist time 15:00")
     assert result["cmd"] == "edit"
     assert result["changes"]["start"] == "15:00"
     assert result["changes"]["end"] == "16:00"
@@ -288,9 +300,10 @@ if __name__ == "__main__":
         test_add_all_day_with_date, test_add_all_day_today_implicit, test_add_all_day_explicit_date,
         test_add_recurring_timed, test_add_recurring_all_day, test_add_recurring_multiword_title,
         test_add_recurring_bad_day, test_add_recurring_no_title,
-        test_edit_time, test_edit_date, test_edit_title, test_edit_multiword_title,
-        test_edit_unknown_calendar, test_edit_bad_date, test_edit_missing_field,
-        test_edit_single_time,
+        test_edit_time_with_date, test_edit_time_without_date,
+        test_edit_date_field, test_edit_title_field,
+        test_edit_multiword_title, test_edit_multiword_title_with_date,
+        test_edit_unknown_calendar, test_edit_missing_field, test_edit_single_time,
         test_unknown_command, test_empty_string,
     ]
     passed = failed = 0
