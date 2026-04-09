@@ -184,6 +184,128 @@ def add_event(service, cmd: dict) -> str:
         return f"❌ Failed to add event: {e}"
 
 
+# ── Edit event ───────────────────────────────────────────────────────────────
+
+def find_and_edit_event(service, cal_key: str, target_date: date, title: str, changes: dict) -> str:
+    """
+    Find an event by calendar, date, and title, then apply changes.
+
+    changes keys (all optional):
+      "start", "end"  — new time strings "HH:MM"
+      "date"          — new date object (reschedule)
+      "title"         — new title string
+
+    - 0 matches → not found message
+    - 1 match   → patched, confirmation
+    - 2+ matches → list them, nothing changed
+    """
+    cal_id = config.CALENDARS[cal_key]
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
+    date_str = target_date.strftime("%d-%m-%Y")
+    tz = utils.TZ
+
+    time_min = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)).isoformat()
+    time_max = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)).isoformat()
+
+    try:
+        result = (
+            service.events()
+            .list(
+                calendarId=cal_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events = result.get("items", [])
+        matches = [e for e in events if e.get("summary", "").lower() == title.lower()]
+
+        if not matches:
+            return f"❌ No event '{title}' found in {cal_display} on {date_str}"
+
+        if len(matches) > 1:
+            lines = [f"❌ Multiple events named '{title}' on {date_str} in {cal_display}. Nothing changed:"]
+            for e in matches:
+                start = e.get("start", {})
+                if "dateTime" in start:
+                    t = datetime.fromisoformat(start["dateTime"]).astimezone(tz).strftime("%H:%M")
+                    lines.append(f"  • {t}  {e.get('summary')}")
+                else:
+                    lines.append(f"  • All day  {e.get('summary')}")
+            return "\n".join(lines)
+
+        event = matches[0]
+        patch_body: dict = {}
+
+        if "title" in changes:
+            patch_body["summary"] = changes["title"]
+
+        if "date" in changes:
+            # Reschedule: move to new date, keep existing time if timed event
+            new_date = changes["date"]
+            existing_start = event.get("start", {})
+            existing_end = event.get("end", {})
+
+            if "dateTime" in existing_start:
+                # Timed event — preserve the time, change the date
+                old_start_dt = datetime.fromisoformat(existing_start["dateTime"]).astimezone(tz)
+                old_end_dt   = datetime.fromisoformat(existing_end["dateTime"]).astimezone(tz)
+                new_start_dt = tz.localize(datetime(new_date.year, new_date.month, new_date.day,
+                                                     old_start_dt.hour, old_start_dt.minute))
+                new_end_dt   = tz.localize(datetime(new_date.year, new_date.month, new_date.day,
+                                                     old_end_dt.hour, old_end_dt.minute))
+                patch_body["start"] = {"dateTime": new_start_dt.isoformat(), "timeZone": config.TIMEZONE}
+                patch_body["end"]   = {"dateTime": new_end_dt.isoformat(),   "timeZone": config.TIMEZONE}
+            else:
+                # All-day event — just change the date
+                patch_body["start"] = {"date": new_date.strftime("%Y-%m-%d")}
+                patch_body["end"]   = {"date": new_date.strftime("%Y-%m-%d")}
+
+        if "start" in changes and "end" in changes:
+            # Change time — keep existing date
+            existing_start = event.get("start", {})
+            if "date" in existing_start:
+                # Was all-day, now becoming timed
+                event_date_obj = date.fromisoformat(existing_start["date"])
+            else:
+                event_date_obj = datetime.fromisoformat(existing_start["dateTime"]).astimezone(tz).date()
+
+            new_start_dt = utils.make_datetime(event_date_obj, changes["start"])
+            new_end_dt   = utils.make_datetime(event_date_obj, changes["end"])
+            patch_body["start"] = {"dateTime": new_start_dt.isoformat(), "timeZone": config.TIMEZONE}
+            patch_body["end"]   = {"dateTime": new_end_dt.isoformat(),   "timeZone": config.TIMEZONE}
+
+        if not patch_body:
+            return "❌ No changes specified."
+
+        service.events().patch(calendarId=cal_id, eventId=event["id"], body=patch_body).execute()
+
+        # Build confirmation message
+        new_title   = changes.get("title", event.get("summary", title))
+        new_date_d  = changes.get("date", target_date)
+        date_disp   = new_date_d.strftime("%d-%m-%Y")
+
+        if "start" in changes:
+            time_disp = f"{changes['start']}–{changes['end']}"
+        elif "dateTime" in event.get("start", {}):
+            old_dt = datetime.fromisoformat(event["start"]["dateTime"]).astimezone(tz)
+            old_end_dt = datetime.fromisoformat(event["end"]["dateTime"]).astimezone(tz)
+            time_disp = f"{old_dt.strftime('%H:%M')}–{old_end_dt.strftime('%H:%M')}"
+        else:
+            time_disp = "All day"
+
+        return (
+            f"✅ Updated in {cal_display}:\n"
+            f"  {new_title}\n"
+            f"  {date_disp}  {time_disp}"
+        )
+
+    except HttpError as e:
+        return f"❌ Failed to edit event: {e}"
+
+
 # ── Delete event ──────────────────────────────────────────────────────────────
 
 def find_and_delete_event(service, cal_key: str, target_date: date, title: str) -> str:

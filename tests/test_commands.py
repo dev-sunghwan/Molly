@@ -213,6 +213,54 @@ def test_add_recurring_no_title():
     assert "title" in result["error"].lower()
 
 
+# ── edit ─────────────────────────────────────────────────────────────────────
+
+def test_edit_time():
+    result = commands.parse("edit SungHwan today dentist time 15:00-16:00")
+    assert result["cmd"] == "edit"
+    assert result["calendar"] == "sunghwan"
+    assert result["date"] == today()
+    assert result["title"] == "dentist"
+    assert result["changes"] == {"start": "15:00", "end": "16:00"}
+
+def test_edit_date():
+    result = commands.parse("edit YounHa tomorrow tennis date Sat")
+    assert result["cmd"] == "edit"
+    assert result["title"] == "tennis"
+    assert "date" in result["changes"]
+    assert result["changes"]["date"].weekday() == 5  # Saturday
+
+def test_edit_title():
+    result = commands.parse("edit SungHwan today dentist title check-up")
+    assert result["cmd"] == "edit"
+    assert result["title"] == "dentist"
+    assert result["changes"] == {"title": "check-up"}
+
+def test_edit_multiword_title():
+    result = commands.parse("edit Family today Sunday roast title Sunday BBQ")
+    assert result["cmd"] == "edit"
+    assert result["title"] == "Sunday roast"
+    assert result["changes"] == {"title": "Sunday BBQ"}
+
+def test_edit_unknown_calendar():
+    result = commands.parse("edit NoName today event time 10:00")
+    assert "error" in result
+
+def test_edit_bad_date():
+    result = commands.parse("edit SungHwan baddate event time 10:00")
+    assert "error" in result
+
+def test_edit_missing_field():
+    result = commands.parse("edit SungHwan today dentist")
+    assert "error" in result
+
+def test_edit_single_time():
+    result = commands.parse("edit SungHwan today dentist time 15:00")
+    assert result["cmd"] == "edit"
+    assert result["changes"]["start"] == "15:00"
+    assert result["changes"]["end"] == "16:00"
+
+
 # ── unrecognised input ────────────────────────────────────────────────────────
 
 def test_unknown_command():
@@ -240,6 +288,9 @@ if __name__ == "__main__":
         test_add_all_day_with_date, test_add_all_day_today_implicit, test_add_all_day_explicit_date,
         test_add_recurring_timed, test_add_recurring_all_day, test_add_recurring_multiword_title,
         test_add_recurring_bad_day, test_add_recurring_no_title,
+        test_edit_time, test_edit_date, test_edit_title, test_edit_multiword_title,
+        test_edit_unknown_calendar, test_edit_bad_date, test_edit_missing_field,
+        test_edit_single_time,
         test_unknown_command, test_empty_string,
     ]
     passed = failed = 0

@@ -34,7 +34,10 @@ USAGE = (
     "    time     : HH:MM-HH:MM  or  HH:MM (event duration defaults to +1h)\n"
     "               Times are in local time — DST is handled automatically\n"
     "\n"
-    "  delete <calendar> <date> <title>  — delete an event\n"
+    "  delete <calendar> <date> <title>        — delete an event\n"
+    "  edit <calendar> <date> <title> time <new_time>   — change time\n"
+    "  edit <calendar> <date> <title> date <new_date>   — reschedule\n"
+    "  edit <calendar> <date> <title> title <new_title> — rename\n"
     "\n"
     "Examples:\n"
     "  add YounHa tennis tomorrow 17:00-18:00\n"
@@ -43,6 +46,8 @@ USAGE = (
     "  add YounHa tennis every Mon 17:00-18:00\n"
     "  add HaNeul swimming every Wed         (all-day every Wednesday)\n"
     "  delete SungHwan today dentist\n"
+    "  edit SungHwan today dentist time 15:00-16:00\n"
+    "  edit YounHa tomorrow tennis date Sat\n"
     "  Fri\n"
     "  09-04-2026"
 )
@@ -82,6 +87,9 @@ def parse(text: str) -> dict:
 
     if lower.startswith("delete "):
         return _parse_delete(text)
+
+    if lower.startswith("edit "):
+        return _parse_edit(text)
 
     # ── date-only query: Mon-Sun or DD-MM-YYYY ────────────────────────────────
     maybe_date = utils.parse_date(lower)
@@ -268,6 +276,120 @@ def _parse_add_recurring(tokens: list, cal_key: str, cal_token: str) -> dict:
             "all_day": True,
             "recurrence": recurrence,
         }
+
+
+def _parse_edit(text: str) -> dict:
+    """
+    Parse: edit <calendar> <date> <title> <field> <new_value>
+
+    Supported fields:
+      time  <HH:MM-HH:MM | HH:MM>  — change start/end time
+      date  <date>                  — reschedule to a new date
+      title <new_title...>          — rename the event
+    """
+    rest = text[5:].strip()  # len("edit ") == 5
+    tokens = rest.split()
+
+    # Minimum: cal + date + title + field + value = 5 tokens
+    if len(tokens) < 5:
+        return {
+            "error": (
+                "❌ Not enough arguments.\n\n"
+                "Usage:\n"
+                "  edit <calendar> <date> <title> time <new_time>\n"
+                "  edit <calendar> <date> <title> date <new_date>\n"
+                "  edit <calendar> <date> <title> title <new_title>\n"
+                "Example: edit SungHwan today dentist time 15:00-16:00"
+            )
+        }
+
+    cal_token = tokens[0]
+    cal_key = cal_token.lower()
+
+    if cal_key not in config.CALENDARS:
+        valid = ", ".join(config.VALID_CALENDAR_NAMES)
+        return {
+            "error": (
+                f"❌ Unknown calendar: '{cal_token}'\n"
+                f"Valid calendars: {valid}"
+            )
+        }
+
+    date_token = tokens[1]
+    event_date = utils.parse_date(date_token)
+    if event_date is None:
+        return {
+            "error": (
+                f"❌ Could not parse date: '{date_token}'\n"
+                "Accepted formats: today, tomorrow, Mon-Sun, DD-MM-YYYY"
+            )
+        }
+
+    # Scan for the field keyword (time / date / title) from the right so that
+    # multi-word event titles work correctly.
+    field_keywords = {"time", "date", "title"}
+    field_idx = None
+    for i in range(len(tokens) - 1, 2, -1):
+        if tokens[i].lower() in field_keywords:
+            field_idx = i
+            break
+
+    if field_idx is None or field_idx <= 2:
+        return {
+            "error": (
+                "❌ Missing field keyword.\n"
+                "Specify what to change: time, date, or title\n"
+                "Example: edit SungHwan today dentist time 15:00"
+            )
+        }
+
+    event_title = " ".join(tokens[2:field_idx]).strip()
+    if not event_title:
+        return {"error": "❌ Event title cannot be empty."}
+
+    field = tokens[field_idx].lower()
+    value_tokens = tokens[field_idx + 1:]
+    if not value_tokens:
+        return {"error": f"❌ No value provided after '{field}'."}
+
+    changes: dict = {}
+
+    if field == "time":
+        time_token = value_tokens[0]
+        time_result = utils.parse_time(time_token)
+        if time_result is None:
+            return {
+                "error": (
+                    f"❌ Could not parse time: '{time_token}'\n"
+                    "Accepted formats: HH:MM-HH:MM  or  HH:MM"
+                )
+            }
+        changes["start"], changes["end"] = time_result
+
+    elif field == "date":
+        new_date = utils.parse_date(value_tokens[0])
+        if new_date is None:
+            return {
+                "error": (
+                    f"❌ Could not parse new date: '{value_tokens[0]}'\n"
+                    "Accepted formats: today, tomorrow, Mon-Sun, DD-MM-YYYY"
+                )
+            }
+        changes["date"] = new_date
+
+    elif field == "title":
+        new_title = " ".join(value_tokens).strip()
+        if not new_title:
+            return {"error": "❌ New title cannot be empty."}
+        changes["title"] = new_title
+
+    return {
+        "cmd": "edit",
+        "calendar": cal_key,
+        "date": event_date,
+        "title": event_title,
+        "changes": changes,
+    }
 
 
 def _parse_delete(text: str) -> dict:

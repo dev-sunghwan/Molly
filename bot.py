@@ -104,6 +104,12 @@ async def handle_message(update: Update, context) -> None:
             )
             await update.message.reply_text(reply)
 
+        elif cmd["cmd"] == "edit":
+            reply = calendar_client.find_and_edit_event(
+                gcal_service, cmd["calendar"], cmd["date"], cmd["title"], cmd["changes"]
+            )
+            await update.message.reply_text(reply)
+
     except Exception as e:
         log.exception("Unhandled error while processing command: %s", cmd)
         await update.message.reply_text(

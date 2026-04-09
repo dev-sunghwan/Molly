@@ -118,7 +118,7 @@ def format_date_header(d: date) -> str:
     return f"📅 {d.strftime('%A, %d-%m-%Y')}"
 
 
-def format_event(event: dict) -> str:
+def format_event(event: dict, show_cal_label: bool = True) -> str:
     """Format a single Google Calendar event dict into a reply line."""
     start = event.get("start", {})
     summary = event.get("summary", "(no title)")
@@ -137,18 +137,34 @@ def format_event(event: dict) -> str:
             dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(TZ)
             time_str += f"–{dt_end.strftime('%H:%M')}"
 
-    label = f"[{cal_label}] " if cal_label else ""
-    return f"  • {time_str}  {label}{summary}"
+    if show_cal_label and cal_label:
+        return f"  • {time_str}  [{cal_label}] {summary}"
+    return f"  • {time_str}  {summary}"
 
 
 def format_event_list(events: list[dict], d: date) -> str:
-    """Build the full reply string for a list of events on a given date."""
+    """Build the full reply string for a list of events on a given date.
+
+    Events are grouped by calendar name. Within each calendar, events are
+    sorted by start time (preserved from the input order).
+    """
     header = format_date_header(d)
     if not events:
         return f"{header}\n\nNo events."
-    lines = [header, ""]
+
+    # Group by calendar name, preserving insertion order
+    by_cal: dict[str, list] = {}
     for ev in events:
-        lines.append(format_event(ev))
+        cal_name = ev.get("_calendar_name", "")
+        if cal_name not in by_cal:
+            by_cal[cal_name] = []
+        by_cal[cal_name].append(ev)
+
+    lines = [header]
+    for cal_name, cal_events in by_cal.items():
+        lines.append(f"\n{cal_name}")
+        for ev in cal_events:
+            lines.append(format_event(ev, show_cal_label=False))
     return "\n".join(lines)
 
 
