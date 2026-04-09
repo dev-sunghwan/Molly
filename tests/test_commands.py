@@ -79,15 +79,24 @@ def test_add_unknown_calendar():
     assert "Unknown calendar" in result["error"]
 
 def test_add_missing_tokens():
-    result = commands.parse("add YounHa tomorrow 17:00-18:00")  # no title
-    # 3 tokens after "add" — title would be empty or date/time overlap ambiguously
-    # parser sees: cal=YounHa, time=17:00-18:00, date=tomorrow, title=[]
+    # Only cal + time (no title) → error
+    result = commands.parse("add YounHa 14:00")
     assert "error" in result
 
-def test_add_bad_date():
+def test_add_no_date_defaults_today():
+    # add <cal> <title> <time> — no date → defaults to today
+    result = commands.parse("add SungHwan dentist 14:00")
+    assert result["cmd"] == "add"
+    assert result["title"] == "dentist"
+    assert result["date"] == today()
+    assert result["start"] == "14:00"
+
+def test_add_bad_date_becomes_title():
+    # "baddate" is not a valid date, so it becomes part of the title and date defaults to today
     result = commands.parse("add SungHwan meeting baddate 10:00-11:00")
-    assert "error" in result
-    assert "date" in result["error"].lower()
+    assert result["cmd"] == "add"
+    assert result["title"] == "meeting baddate"
+    assert result["date"] == today()
 
 def test_add_bad_time():
     result = commands.parse("add SungHwan meeting tomorrow badtime")
@@ -95,10 +104,59 @@ def test_add_bad_time():
     assert "time" in result["error"].lower()
 
 
+# ── week ─────────────────────────────────────────────────────────────────────
+
+def test_week():
+    assert commands.parse("week") == {"cmd": "week"}
+    assert commands.parse("WEEK") == {"cmd": "week"}
+
+
+# ── date-only query ───────────────────────────────────────────────────────────
+
+def test_date_query_ddmmyyyy():
+    result = commands.parse("09-04-2026")
+    assert result["cmd"] == "date"
+    assert result["date"] == date(2026, 4, 9)
+
+def test_date_query_day_name():
+    result = commands.parse("Fri")
+    assert result["cmd"] == "date"
+    delta = (result["date"] - today()).days
+    assert 0 <= delta <= 6
+
+
+# ── delete ────────────────────────────────────────────────────────────────────
+
+def test_delete_basic():
+    result = commands.parse("delete SungHwan today dentist")
+    assert result["cmd"] == "delete"
+    assert result["calendar"] == "sunghwan"
+    assert result["date"] == today()
+    assert result["title"] == "dentist"
+
+def test_delete_multiword_title():
+    result = commands.parse("delete YounHa tomorrow Sunday roast")
+    assert result["cmd"] == "delete"
+    assert result["title"] == "Sunday roast"
+
+def test_delete_unknown_calendar():
+    result = commands.parse("delete NoName today event")
+    assert "error" in result
+
+def test_delete_bad_date():
+    result = commands.parse("delete SungHwan baddate event")
+    assert "error" in result
+    assert "date" in result["error"].lower()
+
+def test_delete_missing_tokens():
+    result = commands.parse("delete SungHwan today")  # no title
+    assert "error" in result
+
+
 # ── unrecognised input ────────────────────────────────────────────────────────
 
 def test_unknown_command():
-    result = commands.parse("hello Dobby")
+    result = commands.parse("hello Molly")
     assert "error" in result
 
 def test_empty_string():
@@ -114,7 +172,11 @@ if __name__ == "__main__":
         test_add_basic, test_add_multiword_title, test_add_ddmmyyyy_date,
         test_add_day_name, test_add_single_time, test_add_case_insensitive_calendar,
         test_add_unknown_calendar, test_add_missing_tokens,
-        test_add_bad_date, test_add_bad_time,
+        test_add_no_date_defaults_today, test_add_bad_date_becomes_title, test_add_bad_time,
+        test_week,
+        test_date_query_ddmmyyyy, test_date_query_day_name,
+        test_delete_basic, test_delete_multiword_title, test_delete_unknown_calendar,
+        test_delete_bad_date, test_delete_missing_tokens,
         test_unknown_command, test_empty_string,
     ]
     passed = failed = 0

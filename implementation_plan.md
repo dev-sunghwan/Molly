@@ -1,4 +1,4 @@
-# Dobby: Family Calendar Telegram Assistant — Implementation Plan
+# Molly: Family Calendar Telegram Assistant — Implementation Plan
 
 > **Decisions confirmed by SungHwan (2026-04-08)**
 > - Telegram library: `python-telegram-bot` v13 (sync) — migrate to v20 async in Phase 2 if needed
@@ -53,7 +53,7 @@ Build a lightweight, always-on Python service that runs on a Windows PC, respond
         |
 [Windows PC — always running]
   ┌─────────────────────────────────┐
-  │  dobby/                         │
+  │  molly/                         │
   │  ├── bot.py          (main loop)│
   │  ├── commands.py     (parsing)  │
   │  ├── calendar_client.py (GCal)  │
@@ -129,7 +129,7 @@ Build a lightweight, always-on Python service that runs on a Windows PC, respond
 
 ### Google Calendar (GCP)
 - Log into [Google Cloud Console](https://console.cloud.google.com) with the dedicated Gmail account
-- Create a new GCP project (e.g., `dobby-family-cal`)
+- Create a new GCP project (e.g., `molly-family-cal`)
 - Enable the **Google Calendar API**
 - Create **OAuth 2.0 credentials** (type: Desktop app)
 - Download `credentials.json`
@@ -292,7 +292,7 @@ Build a lightweight, always-on Python service that runs on a Windows PC, respond
 - **Keep PC awake:** Control Panel → Power Options → set all sleep timers to "Never" while plugged in
   - Or via command: `powercfg /change standby-timeout-ac 0`
 - **Auto-start on boot (Phase 2):** Register as a Windows Task Scheduler task (trigger: on log-on, action: run `run.bat`)
-- **Logs:** Redirect stdout/stderr to `dobby.log` in the project folder; include timestamps
+- **Logs:** Redirect stdout/stderr to `molly.log` in the project folder; include timestamps
 - **Python version:** 3.10+ recommended; use `python` (not `python3`) on Windows
 - **Virtual environment:** Use `venv`; activate with `.venv\Scripts\activate` on Windows
 - **File paths:** Use `pathlib.Path` throughout the code — never hardcode backslashes
@@ -324,7 +324,7 @@ Build a lightweight, always-on Python service that runs on a Windows PC, respond
 
 ## Proposed Folder Structure
 
-OS-neutral notation. On Windows this is `C:\Users\SungHwan\Desktop\Dobby\`; all files sit flat at the root — no nested subdirectory.
+OS-neutral notation. On Windows this is `C:\Users\SungHwan\Desktop\Molly\`; all files sit flat at the root — no nested subdirectory.
 
 ```
 <project_root>/
@@ -343,7 +343,7 @@ OS-neutral notation. On Windows this is `C:\Users\SungHwan\Desktop\Dobby\`; all 
 ├── tests/
 │   ├── test_commands.py    # Parse tests
 │   └── test_utils.py       # Date/time tests
-└── dobby.log               # Runtime log (gitignored)
+└── molly.log               # Runtime log (gitignored)
 ```
 
 ---
@@ -374,8 +374,8 @@ OS-neutral notation. On Windows this is `C:\Users\SungHwan\Desktop\Dobby\`; all 
 ## Developer Setup Checklist (Day 1)
 
 - [ ] Install Python 3.10+ and confirm `python --version` in PowerShell
-- [ ] Navigate to `C:\Users\SungHwan\Desktop\Dobby` and initialize git: `git init`
-- [ ] Create `.gitignore` including: `.env`, `credentials.json`, `token.json`, `dobby.log`, `__pycache__/`, `.venv/`
+- [ ] Navigate to `C:\Users\SungHwan\Desktop\Molly` and initialize git: `git init`
+- [ ] Create `.gitignore` including: `.env`, `credentials.json`, `token.json`, `molly.log`, `__pycache__/`, `.venv/`
 - [ ] Create virtual environment: `python -m venv .venv` then `.venv\Scripts\activate`
 - [ ] Create Telegram bot via @BotFather → save token to `.env`
 - [ ] Create GCP project → enable Calendar API → create OAuth Desktop credentials → download `credentials.json`

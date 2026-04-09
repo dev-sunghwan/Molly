@@ -26,6 +26,9 @@ TIMEZONE: str = _cfg["timezone"]  # e.g. "Europe/London"
 # Keys are always stored/compared in lowercase.
 CALENDARS: dict[str, str] = {k.lower(): v for k, v in _cfg["calendars"].items()}
 
+# Mapping: lowercase name → display name (original casing from config.json)
+CALENDAR_DISPLAY_NAMES: dict[str, str] = {k.lower(): k for k in _cfg["calendars"].keys()}
+
 # Set of Telegram user IDs that are allowed to use the bot
 ALLOWED_USER_IDS: set[int] = set(_cfg.get("allowed_user_ids", []))
 
@@ -34,7 +37,7 @@ VALID_CALENDAR_NAMES: list[str] = list(_cfg["calendars"].keys())  # original cas
 
 CREDENTIALS_PATH: Path = ROOT / "credentials.json"
 TOKEN_PATH: Path = ROOT / "token.json"
-LOG_PATH: Path = ROOT / "dobby.log"
+LOG_PATH: Path = ROOT / "molly.log"
 
 
 def validate():
@@ -51,4 +54,4 @@ def validate():
             errors.append(f"Calendar ID for '{name}' is still a placeholder in config.json")
     if errors:
         msg = "\n".join(f"  ❌ {e}" for e in errors)
-        raise SystemExit(f"[Dobby] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")
+        raise SystemExit(f"[Molly] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")

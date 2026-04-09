@@ -52,6 +52,46 @@ def authenticate():
     return build("calendar", "v3", credentials=creds)
 
 
+# ── Read events (range) ───────────────────────────────────────────────────────
+
+def list_events_range(service, start_date: date, end_date: date) -> list[dict]:
+    """
+    Return all events from start_date to end_date (inclusive) across all calendars,
+    sorted by start time.
+    """
+    tz = utils.TZ
+    time_min = tz.localize(datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)).isoformat()
+    time_max = tz.localize(datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)).isoformat()
+
+    all_events: list[dict] = []
+
+    for name, cal_id in config.CALENDARS.items():
+        try:
+            result = (
+                service.events()
+                .list(
+                    calendarId=cal_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents=True,
+                    orderBy="startTime",
+                )
+                .execute()
+            )
+            for event in result.get("items", []):
+                event["_calendar_name"] = config.CALENDAR_DISPLAY_NAMES.get(name, name)
+                all_events.append(event)
+        except HttpError as e:
+            print(f"[GCal] Error reading calendar '{name}': {e}")
+
+    def sort_key(ev):
+        start = ev.get("start", {})
+        return start.get("dateTime", start.get("date", ""))
+
+    all_events.sort(key=sort_key)
+    return all_events
+
+
 # ── Read events ───────────────────────────────────────────────────────────────
 
 def list_events(service, target_date: date) -> list[dict]:
@@ -82,7 +122,7 @@ def list_events(service, target_date: date) -> list[dict]:
                 .execute()
             )
             for event in result.get("items", []):
-                event["_calendar_name"] = name.capitalize()
+                event["_calendar_name"] = config.CALENDAR_DISPLAY_NAMES.get(name, name)
                 all_events.append(event)
         except HttpError as e:
             # Log and continue — don't fail the whole request over one calendar
@@ -124,7 +164,7 @@ def add_event(service, cmd: dict) -> str:
     try:
         created = service.events().insert(calendarId=cal_id, body=event_body).execute()
         date_str = cmd["date"].strftime("%d-%m-%Y")
-        cal_display = cmd.get("calendar_display", cmd["calendar"]).capitalize()
+        cal_display = config.CALENDAR_DISPLAY_NAMES.get(cmd["calendar"], cmd["calendar"])
         return (
             f"✅ Added to {cal_display}:\n"
             f"  {cmd['title']}\n"
@@ -132,3 +172,57 @@ def add_event(service, cmd: dict) -> str:
         )
     except HttpError as e:
         return f"❌ Failed to add event: {e}"
+
+
+# ── Delete event ──────────────────────────────────────────────────────────────
+
+def find_and_delete_event(service, cal_key: str, target_date: date, title: str) -> str:
+    """
+    Find an event by title on a given date in a specific calendar and delete it.
+    - 0 matches → not found message
+    - 1 match   → deleted, confirmation
+    - 2+ matches → list them, ask user to be more specific (nothing deleted)
+    """
+    cal_id = config.CALENDARS[cal_key]
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
+    date_str = target_date.strftime("%d-%m-%Y")
+    tz = utils.TZ
+
+    time_min = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)).isoformat()
+    time_max = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)).isoformat()
+
+    try:
+        result = (
+            service.events()
+            .list(
+                calendarId=cal_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events = result.get("items", [])
+        matches = [e for e in events if e.get("summary", "").lower() == title.lower()]
+
+        if not matches:
+            return f"❌ No event '{title}' found in {cal_display} on {date_str}"
+
+        if len(matches) > 1:
+            lines = [f"❌ Multiple events named '{title}' on {date_str} in {cal_display}. Nothing deleted. Please specify:"]
+            for e in matches:
+                start = e.get("start", {})
+                if "dateTime" in start:
+                    t = datetime.fromisoformat(start["dateTime"]).astimezone(tz).strftime("%H:%M")
+                    lines.append(f"  • {t}  {e.get('summary')}")
+                else:
+                    lines.append(f"  • All day  {e.get('summary')}")
+            return "\n".join(lines)
+
+        event = matches[0]
+        service.events().delete(calendarId=cal_id, eventId=event["id"]).execute()
+        return f"Deleted from {cal_display}:\n  {title}\n  {date_str}"
+
+    except HttpError as e:
+        return f"❌ Failed to delete event: {e}"

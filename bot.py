@@ -1,5 +1,5 @@
 """
-bot.py — Entry point. Telegram polling loop.
+bot.py — Entry point. Telegram polling loop (python-telegram-bot v20, async).
 
 Flow per message:
   1. Check sender is in ALLOWED_USER_IDS → reject if not
@@ -9,10 +9,10 @@ Flow per message:
 """
 import logging
 import sys
-from datetime import date
+from datetime import timedelta
 
 from telegram import Update
-from telegram.ext import Filters, MessageHandler, Updater
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
 import calendar_client
 import commands
@@ -31,12 +31,23 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Google Calendar service — initialised in main() before polling starts
+gcal_service = None
+
+
+# ── /help handler ────────────────────────────────────────────────────────────
+
+async def help_command(update: Update, context) -> None:
+    user = update.effective_user
+    if user.id not in config.ALLOWED_USER_IDS:
+        return
+    await update.message.reply_text(commands.USAGE)
+
 
 # ── Message handler ───────────────────────────────────────────────────────────
 
-def handle_message(update: Update, context) -> None:
+async def handle_message(update: Update, context) -> None:
     user = update.effective_user
-    chat_id = update.effective_chat.id
 
     # ── Whitelist check ───────────────────────────────────────────────────────
     if user.id not in config.ALLOWED_USER_IDS:
@@ -53,7 +64,7 @@ def handle_message(update: Update, context) -> None:
     cmd = commands.parse(text)
 
     if "error" in cmd:
-        update.message.reply_text(cmd["error"])
+        await update.message.reply_text(cmd["error"])
         return
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
@@ -62,28 +73,47 @@ def handle_message(update: Update, context) -> None:
             target = utils._today_local()
             events = calendar_client.list_events(gcal_service, target)
             reply = utils.format_event_list(events, target)
-            update.message.reply_text(reply)
+            await update.message.reply_text(reply)
 
         elif cmd["cmd"] == "tomorrow":
-            from datetime import timedelta
             target = utils._today_local() + timedelta(days=1)
             events = calendar_client.list_events(gcal_service, target)
             reply = utils.format_event_list(events, target)
-            update.message.reply_text(reply)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "week":
+            monday, sunday = utils.get_week_range()
+            events = calendar_client.list_events_range(gcal_service, monday, sunday)
+            reply = utils.format_week(events, monday, sunday)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "date":
+            target = cmd["date"]
+            events = calendar_client.list_events(gcal_service, target)
+            reply = utils.format_event_list(events, target)
+            await update.message.reply_text(reply)
 
         elif cmd["cmd"] == "add":
             reply = calendar_client.add_event(gcal_service, cmd)
-            update.message.reply_text(reply)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "delete":
+            reply = calendar_client.find_and_delete_event(
+                gcal_service, cmd["calendar"], cmd["date"], cmd["title"]
+            )
+            await update.message.reply_text(reply)
 
     except Exception as e:
         log.exception("Unhandled error while processing command: %s", cmd)
-        update.message.reply_text(f"⚠️ Something went wrong. Please try again.\n({type(e).__name__})")
+        await update.message.reply_text(
+            f"Something went wrong. Please try again.\n({type(e).__name__})"
+        )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Dobby starting up...")
+    log.info("Molly starting up...")
 
     # Validate config before doing anything else
     config.validate()
@@ -94,18 +124,14 @@ def main():
     gcal_service = calendar_client.authenticate()
     log.info("Google Calendar authentication successful.")
 
-    # Start Telegram bot
-    updater = Updater(token=config.TELEGRAM_BOT_TOKEN)
-    dispatcher = updater.dispatcher
+    # Build and start Telegram application
+    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    dispatcher.add_handler(
-        MessageHandler(Filters.text & ~Filters.command, handle_message)
-    )
-
-    log.info("Dobby is running. Waiting for Telegram messages...")
-    updater.start_polling()
-    updater.idle()
-    log.info("Dobby shutting down.")
+    log.info("Molly is running. Waiting for Telegram messages...")
+    app.run_polling()
+    log.info("Molly shutting down.")
 
 
 if __name__ == "__main__":

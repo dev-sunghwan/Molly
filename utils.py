@@ -14,6 +14,7 @@ Time formats accepted:
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytz
 
@@ -136,4 +137,43 @@ def format_event_list(events: list[dict], d: date) -> str:
     lines = [header, ""]
     for ev in events:
         lines.append(format_event(ev))
+    return "\n".join(lines)
+
+
+def get_week_range() -> tuple[date, date]:
+    """Return (monday, sunday) of the current week."""
+    today = _today_local()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def format_week(events: list[dict], start_date: date, end_date: date) -> str:
+    """Format events grouped by day for a week view."""
+    by_date: dict[date, list[Any]] = {}
+    for ev in events:
+        start = ev.get("start", {})
+        if "dateTime" in start:
+            d = datetime.fromisoformat(start["dateTime"]).astimezone(TZ).date()
+        else:
+            d = date.fromisoformat(start["date"])
+        if d not in by_date:
+            by_date[d] = []
+        by_date[d].append(ev)
+
+    header = f"📅 {start_date.strftime('%d-%m-%Y')} – {end_date.strftime('%d-%m-%Y')}"
+    lines = [header]
+
+    current = start_date
+    while current <= end_date:
+        day_label = current.strftime("%a %d-%m")
+        day_events = by_date.get(current, [])
+        if day_events:
+            lines.append(f"\n{day_label}")
+            for ev in day_events:
+                lines.append(format_event(ev))
+        else:
+            lines.append(f"\n{day_label}  —")
+        current += timedelta(days=1)
+
     return "\n".join(lines)

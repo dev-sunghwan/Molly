@@ -4,7 +4,7 @@ credentials.json
 token.json
 
 # Logs
-dobby.log
+molly.log
 *.log
 
 # Python
@@ -24,3 +24,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+.claude/
