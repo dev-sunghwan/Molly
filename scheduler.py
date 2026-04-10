@@ -7,12 +7,13 @@ Jobs:
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
 import calendar_client
 import config
@@ -20,9 +21,38 @@ import utils
 
 log = logging.getLogger(__name__)
 
-# In-memory set of (event_id, date_iso) already reminded.
-# Resets on restart — acceptable for Phase 2.
-_reminded: set[tuple[str, str]] = set()
+# File-backed set of "event_id|start_iso" strings already reminded.
+# Persists across restarts. Entries older than today are pruned on load.
+_REMINDED_PATH: Path = config.ROOT / "data" / "reminded.json"
+
+
+def _load_reminded() -> set[str]:
+    """Load the reminded set from disk, pruning entries from past days."""
+    if not _REMINDED_PATH.exists():
+        return set()
+    try:
+        data: list[str] = json.loads(_REMINDED_PATH.read_text(encoding="utf-8"))
+        today_iso = utils._today_local().isoformat()
+        # Keep only entries whose embedded date is today or in the future
+        return {k for k in data if k.split("|")[-1][:10] >= today_iso}
+    except Exception:
+        return set()
+
+
+def _save_reminded(reminded: set[str]) -> None:
+    """Persist the reminded set to disk."""
+    try:
+        _REMINDED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _REMINDED_PATH.write_text(json.dumps(sorted(reminded)), encoding="utf-8")
+    except Exception as e:
+        log.warning("[Scheduler] Could not save reminded set: %s", e)
+
+
+_reminded: set[str] = _load_reminded()
+
+# Tracks the previous check time to define the reminder window.
+# None on first run — defaults to (now - 5min) when first check fires.
+_last_check: datetime | None = None
 
 
 def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
@@ -51,7 +81,7 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
 
     scheduler.add_job(
         _check_reminders,
-        trigger=IntervalTrigger(minutes=5),
+        trigger=CronTrigger(minute="*/5", timezone=tz),
         args=[gcal_service, bot],
         id="check_reminders",
         name="Per-event reminder check",
@@ -83,22 +113,36 @@ async def _daily_summary(gcal_service, bot) -> None:
 
 async def _check_reminders(gcal_service, bot) -> None:
     """
-    Check for events starting within the reminder window and send reminders.
-    - Only timed events are reminded (all-day events are skipped).
-    - Uses an in-memory set to avoid duplicate reminders within the same run.
+    Send reminders for events whose reminder_time (= start - reminder_delta)
+    falls in the window (prev_check, now].
+
+    Using a sliding window instead of a fixed lookahead means the reminder
+    fires within one check interval (~5 min) of the exact target time,
+    regardless of when the bot was started.
+
+    CronTrigger(minute='*/5') keeps checks clock-aligned (:00, :05, :10 ...)
+    so on-the-hour events get reminded at exactly the right time.
     """
+    global _last_check
+
     tz = utils.TZ
     now = datetime.now(tz)
     reminder_delta = timedelta(minutes=config.SCHEDULER_REMINDER_MINUTES)
-    target_time = now + reminder_delta
+    check_interval = timedelta(minutes=5)
 
-    today = now.date()
-    tomorrow = today + timedelta(days=1)
+    # On first run after (re)start, look back one interval to avoid missing
+    # events whose reminder_time passed just before the bot came up.
+    prev = _last_check if _last_check is not None else (now - check_interval)
+    _last_check = now
+
+    # Fetch events in the window where their start time could be relevant:
+    # from (prev + reminder_delta) to (now + reminder_delta + buffer)
+    search_start = (prev + reminder_delta).date()
+    search_end   = (now  + reminder_delta + check_interval).date()
 
     try:
-        # Fetch today + tomorrow to handle reminders that cross midnight
-        events = calendar_client.list_events_range(gcal_service, today, tomorrow)
-    except Exception as e:
+        events = calendar_client.list_events_range(gcal_service, search_start, search_end)
+    except Exception:
         log.exception("[Scheduler] Failed to fetch events for reminder check")
         return
 
@@ -111,14 +155,16 @@ async def _check_reminders(gcal_service, bot) -> None:
 
         event_id = event.get("id", "")
         start_dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+        reminder_time = start_dt - reminder_delta
 
-        # Fire if the event starts within (now, now + reminder_window]
-        if now < start_dt <= target_time:
-            occurrence_key = (event_id, start_dt.date().isoformat())
+        # Fire if the reminder_time falls in (prev, now]
+        if prev < reminder_time <= now:
+            occurrence_key = f"{event_id}|{start_dt.isoformat()}"
 
             if occurrence_key not in _reminded:
                 _reminded.add(occurrence_key)
-                minutes_away = int((start_dt - now).total_seconds() / 60)
+                _save_reminded(_reminded)
+                minutes_away = round((start_dt - now).total_seconds() / 60)
                 cal_label = event.get("_calendar_name", "")
                 label = f"[{cal_label}] " if cal_label else ""
                 text = (

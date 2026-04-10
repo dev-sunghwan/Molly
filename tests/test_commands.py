@@ -144,9 +144,12 @@ def test_delete_unknown_calendar():
     assert "error" in result
 
 def test_delete_bad_date():
+    # "baddate" is not a recognised date, so it becomes part of the title
+    # and the search spans the next 90 days (no error)
     result = commands.parse("delete SungHwan baddate event")
-    assert "error" in result
-    assert "date" in result["error"].lower()
+    assert result["cmd"] == "delete"
+    assert result["date"] is None
+    assert result["title"] == "baddate event"
 
 def test_delete_missing_tokens():
     result = commands.parse("delete SungHwan today")  # no title
@@ -273,6 +276,115 @@ def test_edit_single_time():
     assert result["changes"]["end"] == "16:00"
 
 
+# ── week next / month ─────────────────────────────────────────────────────────
+
+def test_week_next():
+    assert commands.parse("week next") == {"cmd": "week_next"}
+    assert commands.parse("WEEK NEXT") == {"cmd": "week_next"}
+
+def test_month():
+    assert commands.parse("month") == {"cmd": "month"}
+    assert commands.parse("MONTH") == {"cmd": "month"}
+
+def test_month_next():
+    assert commands.parse("month next") == {"cmd": "month_next"}
+
+
+# ── search ────────────────────────────────────────────────────────────────────
+
+def test_search_basic():
+    result = commands.parse("search tennis")
+    assert result == {"cmd": "search", "keyword": "tennis"}
+
+def test_search_multiword():
+    result = commands.parse("search Sunday roast")
+    assert result == {"cmd": "search", "keyword": "Sunday roast"}
+
+def test_search_empty():
+    result = commands.parse("search")
+    # "search" alone without a space + keyword falls through to unrecognised
+    assert "error" in result
+
+def test_search_empty_keyword():
+    result = commands.parse("search ")
+    assert "error" in result
+
+
+# ── next ──────────────────────────────────────────────────────────────────────
+
+def test_next_all():
+    result = commands.parse("next")
+    assert result == {"cmd": "next", "calendar": None}
+
+def test_next_calendar():
+    result = commands.parse("next YounHa")
+    assert result["cmd"] == "next"
+    assert result["calendar"] == "younha"
+
+def test_next_unknown_calendar():
+    result = commands.parse("next NoName")
+    assert "error" in result
+
+
+# ── delete without date ───────────────────────────────────────────────────────
+
+def test_delete_no_date():
+    result = commands.parse("delete SungHwan dentist")
+    assert result["cmd"] == "delete"
+    assert result["calendar"] == "sunghwan"
+    assert result["date"] is None
+    assert result["title"] == "dentist"
+
+def test_delete_no_date_multiword():
+    result = commands.parse("delete YounHa Sunday roast")
+    assert result["cmd"] == "delete"
+    assert result["date"] is None
+    assert result["title"] == "Sunday roast"
+
+def test_delete_with_date_still_works():
+    result = commands.parse("delete SungHwan today dentist")
+    assert result["cmd"] == "delete"
+    assert result["date"] == today()
+    assert result["title"] == "dentist"
+
+
+# ── upcoming ─────────────────────────────────────────────────────────────────
+
+def test_upcoming_all():
+    result = commands.parse("upcoming")
+    assert result == {"cmd": "upcoming", "calendar": None, "limit": 10}
+
+def test_upcoming_calendar():
+    result = commands.parse("upcoming YounHa")
+    assert result["cmd"] == "upcoming"
+    assert result["calendar"] == "younha"
+    assert result["limit"] == 10
+
+def test_upcoming_calendar_with_limit():
+    result = commands.parse("upcoming YounHa 20")
+    assert result["cmd"] == "upcoming"
+    assert result["calendar"] == "younha"
+    assert result["limit"] == 20
+
+def test_upcoming_limit_capped():
+    result = commands.parse("upcoming YounHa 999")
+    assert result["limit"] == 50
+
+def test_upcoming_all_with_limit():
+    result = commands.parse("upcoming 15")
+    assert result["cmd"] == "upcoming"
+    assert result["calendar"] is None
+    assert result["limit"] == 15
+
+def test_upcoming_unknown_calendar():
+    result = commands.parse("upcoming NoName")
+    assert "error" in result
+
+def test_upcoming_bad_limit():
+    result = commands.parse("upcoming YounHa notanumber")
+    assert "error" in result
+
+
 # ── unrecognised input ────────────────────────────────────────────────────────
 
 def test_unknown_command():
@@ -304,6 +416,13 @@ if __name__ == "__main__":
         test_edit_date_field, test_edit_title_field,
         test_edit_multiword_title, test_edit_multiword_title_with_date,
         test_edit_unknown_calendar, test_edit_missing_field, test_edit_single_time,
+        test_week_next, test_month, test_month_next,
+        test_search_basic, test_search_multiword, test_search_empty, test_search_empty_keyword,
+        test_next_all, test_next_calendar, test_next_unknown_calendar,
+        test_delete_no_date, test_delete_no_date_multiword, test_delete_with_date_still_works,
+        test_upcoming_all, test_upcoming_calendar, test_upcoming_calendar_with_limit,
+        test_upcoming_limit_capped, test_upcoming_all_with_limit,
+        test_upcoming_unknown_calendar, test_upcoming_bad_limit,
         test_unknown_command, test_empty_string,
     ]
     passed = failed = 0

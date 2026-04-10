@@ -176,6 +176,32 @@ def get_week_range() -> tuple[date, date]:
     return monday, sunday
 
 
+def get_next_week_range() -> tuple[date, date]:
+    """Return (monday, sunday) of next week."""
+    today = _today_local()
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def get_month_range(offset: int = 0) -> tuple[date, date]:
+    """Return (first_day, last_day) of the month at offset months from today.
+    offset=0 → current month, offset=1 → next month.
+    """
+    today = _today_local()
+    # Move forward by 'offset' months
+    month = today.month + offset
+    year = today.year + (month - 1) // 12
+    month = ((month - 1) % 12) + 1
+    first = date(year, month, 1)
+    # Last day: first day of next month minus one day
+    if month == 12:
+        last = date(year + 1, 1, 1) - timedelta(days=1)
+    else:
+        last = date(year, month + 1, 1) - timedelta(days=1)
+    return first, last
+
+
 def format_week(events: list[dict], start_date: date, end_date: date) -> str:
     """Format events grouped by day for a week view."""
     by_date: dict[date, list[Any]] = {}
@@ -203,5 +229,39 @@ def format_week(events: list[dict], start_date: date, end_date: date) -> str:
         else:
             lines.append(f"\n{day_label}  —")
         current += timedelta(days=1)
+
+    return "\n".join(lines)
+
+
+def format_month(events: list[dict], first: date, last: date) -> str:
+    """Format events grouped by day for a month view.
+    Only days with events are shown (skips empty days for brevity).
+    """
+    by_date: dict[date, list[Any]] = {}
+    for ev in events:
+        start = ev.get("start", {})
+        if "dateTime" in start:
+            d = datetime.fromisoformat(start["dateTime"]).astimezone(TZ).date()
+        else:
+            d = date.fromisoformat(start["date"])
+        if d not in by_date:
+            by_date[d] = []
+        by_date[d].append(ev)
+
+    header = f"📅 {first.strftime('%B %Y')}"
+    lines = [header]
+
+    current = first
+    while current <= last:
+        day_events = by_date.get(current, [])
+        if day_events:
+            day_label = current.strftime("%a %d")
+            lines.append(f"\n{day_label}")
+            for ev in day_events:
+                lines.append(format_event(ev))
+        current += timedelta(days=1)
+
+    if len(lines) == 1:
+        lines.append("\nNo events.")
 
     return "\n".join(lines)

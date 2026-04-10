@@ -13,43 +13,134 @@ from __future__ import annotations
 import config
 import utils
 
-# Help text sent on unrecognised input
+# ── Help strings ─────────────────────────────────────────────────────────────
+
+# Short overview shown for unrecognised input or /help
 USAGE = (
-    "Molly commands:\n"
+    "📅 Molly\n"
     "\n"
-    "  today                        — today's events\n"
-    "  tomorrow                     — tomorrow's events\n"
-    "  week                         — this week's events\n"
-    "  <date>                       — events on a specific date\n"
+    "── View ──\n"
+    "today · tomorrow\n"
+    "week · week next\n"
+    "month · month next\n"
+    "<Mon-Sun> · <dd-mm-yyyy>\n"
     "\n"
-    "  add <calendar> <title> <date> <time>   — timed event\n"
-    "  add <calendar> <title> <time>          — timed event (date = today)\n"
-    "  add <calendar> <title> <date>          — all-day event\n"
-    "  add <calendar> <title>                 — all-day event (today)\n"
-    "  add <calendar> <title> every <day> <time>  — weekly recurring\n"
-    "  add <calendar> <title> every <day>         — all-day weekly recurring\n"
-    "    calendar : " + ", ".join(config.VALID_CALENDAR_NAMES) + "\n"
-    "    date     : today | tomorrow | Mon-Sun | DD-MM-YYYY\n"
-    "               Mon-Sun = next occurrence of that weekday (today if already that day)\n"
-    "    time     : HH:MM-HH:MM  or  HH:MM (event duration defaults to +1h)\n"
-    "               Times are in local time — DST is handled automatically\n"
+    "── Commands ──\n"
+    "add · edit · delete\n"
+    "search · next · upcoming\n"
     "\n"
-    "  delete <calendar> <date> <title>        — delete an event\n"
-    "  edit <calendar> <date> <title> time <new_time>   — change time\n"
-    "  edit <calendar> <date> <title> date <new_date>   — reschedule\n"
-    "  edit <calendar> <date> <title> title <new_title> — rename\n"
+    "── Help ──\n"
+    "help view · help add · help edit\n"
+    "help delete · help search · help calendars"
+)
+
+# Detailed per-command help
+HELP_VIEW = (
+    "📅 View events\n"
     "\n"
-    "Examples:\n"
-    "  add YounHa tennis tomorrow 17:00-18:00\n"
-    "  add SungHwan dentist 14:00\n"
-    "  add Family BBQ Sat                    (all-day, next Saturday)\n"
-    "  add YounHa tennis every Mon 17:00-18:00\n"
-    "  add HaNeul swimming every Wed         (all-day every Wednesday)\n"
-    "  delete SungHwan today dentist\n"
-    "  edit SungHwan today dentist time 15:00-16:00\n"
-    "  edit YounHa tomorrow tennis date Sat\n"
-    "  Fri\n"
-    "  09-04-2026"
+    "Show events for a specific period:\n"
+    "  today · tomorrow\n"
+    "  week · week next\n"
+    "  month · month next\n"
+    "\n"
+    "Show events for a specific day:\n"
+    "  <Mon-Sun>      next occurrence of that weekday\n"
+    "  <dd-mm-yyyy>   specific date\n"
+    "\n"
+    "e.g.  Fri\n"
+    "      Sat\n"
+    "      15-04-2026"
+)
+
+HELP_ADD = (
+    "➕ Add an event\n"
+    "\n"
+    "add <calendar> <title> <date> <time>\n"
+    "\n"
+    "date and time are both optional:\n"
+    "  omit date  → today\n"
+    "  omit time  → all-day event\n"
+    "  omit both  → all-day event today\n"
+    "\n"
+    "For a weekly recurring event, use 'every':\n"
+    "  add <calendar> <title> every <day> <time>\n"
+    "\n"
+    "date  :  today · tomorrow · <Mon-Sun> · <dd-mm-yyyy>\n"
+    "time  :  HH:MM-HH:MM  or  HH:MM  (end defaults to +1h)\n"
+    "\n"
+    "e.g.  add YounHa tennis tomorrow 17:00-18:00\n"
+    "      add SungHwan dentist 14:00\n"
+    "      add Family BBQ Sat\n"
+    "      add YounHa tennis every Mon 17:00-18:00\n"
+    "      add HaNeul swimming every Wed"
+)
+
+HELP_EDIT = (
+    "✏️ Edit an event\n"
+    "\n"
+    "edit <calendar> <title> time <new_time>\n"
+    "edit <calendar> <title> date <new_date>\n"
+    "edit <calendar> <title> title <new_title>\n"
+    "\n"
+    "Molly searches the next 90 days by title.\n"
+    "To narrow to a specific day, add a date after the calendar:\n"
+    "  edit <calendar> <date> <title> ...\n"
+    "\n"
+    "e.g.  edit SungHwan dentist time 15:00-16:00\n"
+    "      edit YounHa tennis date Sat\n"
+    "      edit Family BBQ title Family Picnic\n"
+    "      edit SungHwan today dentist time 15:00"
+)
+
+HELP_DELETE = (
+    "🗑 Delete an event\n"
+    "\n"
+    "delete <calendar> <title>\n"
+    "\n"
+    "Molly searches the next 90 days by title.\n"
+    "To narrow to a specific day, add a date after the calendar:\n"
+    "  delete <calendar> <date> <title>\n"
+    "\n"
+    "If multiple events match, Molly lists them\n"
+    "and asks you to include a date.\n"
+    "\n"
+    "e.g.  delete YounHa tennis\n"
+    "      delete SungHwan today dentist\n"
+    "      delete Family 25-12-2026 Christmas dinner"
+)
+
+HELP_SEARCH = (
+    "🔍 Search & browse\n"
+    "\n"
+    "Search by keyword (next 90 days):\n"
+    "  search <keyword>\n"
+    "\n"
+    "Show the very next upcoming event:\n"
+    "  next                  across all calendars\n"
+    "  next <calendar>       for one person\n"
+    "\n"
+    "Show multiple upcoming events:\n"
+    "  upcoming              next 10 events, all calendars\n"
+    "  upcoming <calendar>   next 10 events for one person\n"
+    "  upcoming <calendar> <n>   next N events (max 50)\n"
+    "\n"
+    "e.g.  search tennis\n"
+    "      next YounHa\n"
+    "      upcoming SungHwan\n"
+    "      upcoming Family 20"
+)
+
+HELP_CALENDARS = (
+    "📋 Calendars\n"
+    "\n"
+    + "\n".join(f"  {name}" for name in config.VALID_CALENDAR_NAMES) + "\n"
+    "\n"
+    "Use the calendar name exactly as shown above\n"
+    "(not case-sensitive).\n"
+    "\n"
+    "e.g.  add YounHa tennis tomorrow 17:00-18:00\n"
+    "      upcoming SungHwan\n"
+    "      delete Family BBQ"
 )
 
 
@@ -71,7 +162,15 @@ def parse(text: str) -> dict:
     text = text.strip()
     lower = text.lower()
 
-    # ── today / tomorrow / week ───────────────────────────────────────────────
+    # ── help ─────────────────────────────────────────────────────────────────
+    if lower in ("help", "/help"):
+        return {"cmd": "help", "topic": None}
+
+    if lower.startswith("help "):
+        topic = lower[5:].strip()
+        return {"cmd": "help", "topic": topic}
+
+    # ── today / tomorrow / week / month ──────────────────────────────────────
     if lower == "today":
         return {"cmd": "today"}
 
@@ -81,7 +180,19 @@ def parse(text: str) -> dict:
     if lower == "week":
         return {"cmd": "week"}
 
-    # ── add / delete ──────────────────────────────────────────────────────────
+    if lower == "week next":
+        return {"cmd": "week_next"}
+
+    if lower == "month":
+        return {"cmd": "month"}
+
+    if lower == "month next":
+        return {"cmd": "month_next"}
+
+    if lower == "next":
+        return {"cmd": "next", "calendar": None}
+
+    # ── add / delete / edit / search / next <cal> ────────────────────────────
     if lower.startswith("add "):
         return _parse_add(text)
 
@@ -90,6 +201,32 @@ def parse(text: str) -> dict:
 
     if lower.startswith("edit "):
         return _parse_edit(text)
+
+    if lower.startswith("search "):
+        keyword = text[7:].strip()
+        if not keyword:
+            return {"error": "❌ Search keyword cannot be empty.\nUsage: search <keyword>"}
+        return {"cmd": "search", "keyword": keyword}
+
+    if lower.startswith("next "):
+        cal_token = text[5:].strip()
+        cal_key = cal_token.lower()
+        if cal_key not in config.CALENDARS:
+            valid = ", ".join(config.VALID_CALENDAR_NAMES)
+            return {
+                "error": (
+                    f"❌ Unknown calendar: '{cal_token}'\n"
+                    f"Valid calendars: {valid}\n"
+                    f"Or use 'next' alone to see next event across all calendars."
+                )
+            }
+        return {"cmd": "next", "calendar": cal_key}
+
+    if lower == "upcoming":
+        return {"cmd": "upcoming", "calendar": None, "limit": 10}
+
+    if lower.startswith("upcoming "):
+        return _parse_upcoming(text)
 
     # ── date-only query: Mon-Sun or DD-MM-YYYY ────────────────────────────────
     maybe_date = utils.parse_date(lower)
@@ -347,7 +484,23 @@ def _parse_edit(text: str) -> dict:
             )
         }
 
-    event_title = " ".join(tokens[title_start:field_idx]).strip()
+    # Scan title tokens for an embedded date (e.g. user puts date after title)
+    # First date found is used as the search date; remaining tokens form the title.
+    title_tokens_raw = tokens[title_start:field_idx]
+    embedded_date = None
+    clean_title_tokens = []
+    for tok in title_tokens_raw:
+        if embedded_date is None:
+            parsed = utils.parse_date(tok.lower())
+            if parsed is not None:
+                embedded_date = parsed
+                continue  # exclude this token from the title
+        clean_title_tokens.append(tok)
+
+    if embedded_date is not None:
+        event_date = embedded_date
+
+    event_title = " ".join(clean_title_tokens).strip()
     if not event_title:
         return {"error": "❌ Event title cannot be empty."}
 
@@ -396,25 +549,30 @@ def _parse_edit(text: str) -> dict:
     }
 
 
-def _parse_delete(text: str) -> dict:
-    """Parse: delete <calendar> <date> <title>"""
-    rest = text[7:].strip()  # len("delete ") == 7
+def _parse_upcoming(text: str) -> dict:
+    """
+    Parse: upcoming [<calendar>] [<n>]
+
+    upcoming YounHa      → next 10 events for YounHa
+    upcoming YounHa 20   → next 20 events for YounHa
+    upcoming 20          → next 20 events across all calendars
+    """
+    rest = text[9:].strip()  # len("upcoming ") == 9
     tokens = rest.split()
 
-    if len(tokens) < 3:
-        return {
-            "error": (
-                "❌ Not enough arguments.\n\n"
-                "Usage: delete <calendar> <date> <title>\n"
-                "Example: delete SungHwan today dentist"
-            )
-        }
+    cal_key = None
+    limit = 10
 
+    if not tokens:
+        return {"cmd": "upcoming", "calendar": None, "limit": 10}
+
+    # Check if first token is a number
+    if tokens[0].isdigit():
+        limit = min(int(tokens[0]), 50)
+        return {"cmd": "upcoming", "calendar": None, "limit": limit}
+
+    # First token should be a calendar name
     cal_token = tokens[0]
-    date_token = tokens[1]
-    title = " ".join(tokens[2:])
-
-    # ── Validate calendar name ────────────────────────────────────────────────
     cal_key = cal_token.lower()
     if cal_key not in config.CALENDARS:
         valid = ", ".join(config.VALID_CALENDAR_NAMES)
@@ -425,15 +583,68 @@ def _parse_delete(text: str) -> dict:
             )
         }
 
-    # ── Validate date ─────────────────────────────────────────────────────────
-    event_date = utils.parse_date(date_token)
-    if event_date is None:
+    # Optional second token: limit
+    if len(tokens) >= 2:
+        if tokens[1].isdigit():
+            limit = min(int(tokens[1]), 50)
+        else:
+            return {
+                "error": (
+                    f"❌ Expected a number after '{cal_token}', got '{tokens[1]}'\n"
+                    "Example: upcoming YounHa 20"
+                )
+            }
+
+    return {"cmd": "upcoming", "calendar": cal_key, "limit": limit}
+
+
+def _parse_delete(text: str) -> dict:
+    """
+    Parse: delete <calendar> [<date>] <title>
+
+    Date is optional. If the second token parses as a date it is used to
+    narrow the search; otherwise the title search spans the next 90 days.
+    """
+    rest = text[7:].strip()  # len("delete ") == 7
+    tokens = rest.split()
+
+    if len(tokens) < 2:
         return {
             "error": (
-                f"❌ Could not parse date: '{date_token}'\n"
-                "Accepted formats: today, tomorrow, Mon-Sun, DD-MM-YYYY"
+                "❌ Not enough arguments.\n\n"
+                "Usage: delete <calendar> <date> <title>\n"
+                "   or: delete <calendar> <title>  (search next 90 days)\n"
+                "Example: delete SungHwan today dentist\n"
+                "Example: delete SungHwan dentist"
             )
         }
+
+    cal_token = tokens[0]
+    cal_key = cal_token.lower()
+
+    # ── Validate calendar name ────────────────────────────────────────────────
+    if cal_key not in config.CALENDARS:
+        valid = ", ".join(config.VALID_CALENDAR_NAMES)
+        return {
+            "error": (
+                f"❌ Unknown calendar: '{cal_token}'\n"
+                f"Valid calendars: {valid}"
+            )
+        }
+
+    # ── Optional date: check if tokens[1] is a date ───────────────────────────
+    maybe_date = utils.parse_date(tokens[1].lower())
+    if maybe_date is not None:
+        if len(tokens) < 3:
+            return {"error": "❌ Event title cannot be empty.\nUsage: delete <calendar> <date> <title>"}
+        event_date = maybe_date
+        title = " ".join(tokens[2:])
+    else:
+        event_date = None  # search upcoming 90 days
+        title = " ".join(tokens[1:])
+
+    if not title:
+        return {"error": "❌ Event title cannot be empty."}
 
     return {
         "cmd": "delete",

@@ -45,6 +45,24 @@ async def help_command(update: Update, context) -> None:
     await update.message.reply_text(commands.USAGE)
 
 
+def _help_reply(topic: str | None) -> str:
+    """Return the appropriate help string for a given topic."""
+    if topic is None:
+        return commands.USAGE
+    topic = topic.strip().lower()
+    mapping = {
+        "view":      commands.HELP_VIEW,
+        "add":       commands.HELP_ADD,
+        "edit":      commands.HELP_EDIT,
+        "delete":    commands.HELP_DELETE,
+        "search":    commands.HELP_SEARCH,
+        "calendars": commands.HELP_CALENDARS,
+    }
+    if topic in mapping:
+        return mapping[topic]
+    return f"No help available for '{topic}'.\n\nTopics: view · add · edit · delete · search · calendars"
+
+
 # ── Message handler ───────────────────────────────────────────────────────────
 
 async def handle_message(update: Update, context) -> None:
@@ -102,6 +120,42 @@ async def handle_message(update: Update, context) -> None:
             reply = calendar_client.find_and_delete_event(
                 gcal_service, cmd["calendar"], cmd["date"], cmd["title"]
             )
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "week_next":
+            monday, sunday = utils.get_next_week_range()
+            events = calendar_client.list_events_range(gcal_service, monday, sunday)
+            reply = utils.format_week(events, monday, sunday)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "month":
+            first, last = utils.get_month_range(offset=0)
+            events = calendar_client.list_events_range(gcal_service, first, last)
+            reply = utils.format_month(events, first, last)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "month_next":
+            first, last = utils.get_month_range(offset=1)
+            events = calendar_client.list_events_range(gcal_service, first, last)
+            reply = utils.format_month(events, first, last)
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "search":
+            events = calendar_client.search_events(gcal_service, cmd["keyword"])
+            reply = calendar_client.format_search_results(events, cmd["keyword"])
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "next":
+            events = calendar_client.get_next_events(gcal_service, cmd["calendar"], limit=1)
+            reply = calendar_client.format_next_events(events, cmd["calendar"])
+            await update.message.reply_text(reply)
+
+        elif cmd["cmd"] == "help":
+            await update.message.reply_text(_help_reply(cmd["topic"]))
+
+        elif cmd["cmd"] == "upcoming":
+            events = calendar_client.get_upcoming_events(gcal_service, cmd["calendar"], limit=cmd["limit"])
+            reply = calendar_client.format_upcoming_events(events, cmd["calendar"], cmd["limit"])
             await update.message.reply_text(reply)
 
         elif cmd["cmd"] == "edit":
