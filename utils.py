@@ -114,8 +114,8 @@ def make_datetime(d: date, hhmm: str) -> datetime:
 # ── Reply formatting ──────────────────────────────────────────────────────────
 
 def format_date_header(d: date) -> str:
-    """e.g.  📅 Tuesday, 08-04-2026"""
-    return f"📅 {d.strftime('%A, %d-%m-%Y')}"
+    """e.g.  📅 <b>Tuesday, 08-04-2026</b>"""
+    return f"📅 <b>{d.strftime('%A, %d-%m-%Y')}</b>"
 
 
 def format_event(event: dict, show_cal_label: bool = True) -> str:
@@ -126,7 +126,17 @@ def format_event(event: dict, show_cal_label: bool = True) -> str:
 
     # All-day event
     if "date" in start:
-        time_str = "All day"
+        start_d = date.fromisoformat(start["date"])
+        end = event.get("end", {})
+        if "date" in end:
+            # Google end date is exclusive — subtract 1 day to get inclusive end
+            end_d = date.fromisoformat(end["date"]) - timedelta(days=1)
+            if end_d > start_d:
+                time_str = f"All day  ({start_d.strftime('%d-%m')} – {end_d.strftime('%d-%m-%Y')})"
+            else:
+                time_str = "All day"
+        else:
+            time_str = "All day"
     else:
         dt = datetime.fromisoformat(start["dateTime"])
         dt_local = dt.astimezone(TZ)
@@ -162,7 +172,7 @@ def format_event_list(events: list[dict], d: date) -> str:
 
     lines = [header]
     for cal_name, cal_events in by_cal.items():
-        lines.append(f"\n{cal_name}")
+        lines.append(f"\n<b>{cal_name}</b>")
         for ev in cal_events:
             lines.append(format_event(ev, show_cal_label=False))
     return "\n".join(lines)
@@ -215,7 +225,7 @@ def format_week(events: list[dict], start_date: date, end_date: date) -> str:
             by_date[d] = []
         by_date[d].append(ev)
 
-    header = f"📅 {start_date.strftime('%d-%m-%Y')} – {end_date.strftime('%d-%m-%Y')}"
+    header = f"📅 <b>{start_date.strftime('%d-%m-%Y')} – {end_date.strftime('%d-%m-%Y')}</b>"
     lines = [header]
 
     current = start_date
@@ -223,11 +233,11 @@ def format_week(events: list[dict], start_date: date, end_date: date) -> str:
         day_label = current.strftime("%a %d-%m")
         day_events = by_date.get(current, [])
         if day_events:
-            lines.append(f"\n{day_label}")
+            lines.append(f"\n<b>{day_label}</b>")
             for ev in day_events:
                 lines.append(format_event(ev))
         else:
-            lines.append(f"\n{day_label}  —")
+            lines.append(f"\n<b>{day_label}</b>  —")
         current += timedelta(days=1)
 
     return "\n".join(lines)
@@ -248,7 +258,7 @@ def format_month(events: list[dict], first: date, last: date) -> str:
             by_date[d] = []
         by_date[d].append(ev)
 
-    header = f"📅 {first.strftime('%B %Y')}"
+    header = f"📅 <b>{first.strftime('%B %Y')}</b>"
     lines = [header]
 
     current = first
@@ -256,7 +266,7 @@ def format_month(events: list[dict], first: date, last: date) -> str:
         day_events = by_date.get(current, [])
         if day_events:
             day_label = current.strftime("%a %d")
-            lines.append(f"\n{day_label}")
+            lines.append(f"\n<b>{day_label}</b>")
             for ev in day_events:
                 lines.append(format_event(ev))
         current += timedelta(days=1)

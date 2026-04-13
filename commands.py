@@ -23,10 +23,10 @@ USAGE = (
     "today · tomorrow\n"
     "week · week next\n"
     "month · month next\n"
-    "<Mon-Sun> · <dd-mm-yyyy>\n"
+    "&lt;Mon-Sun&gt; · &lt;dd-mm-yyyy&gt;\n"
     "\n"
     "── Commands ──\n"
-    "add · edit · delete\n"
+    "add · edit · delete · delete all\n"
     "search · next · upcoming\n"
     "\n"
     "── Help ──\n"
@@ -44,8 +44,8 @@ HELP_VIEW = (
     "  month · month next\n"
     "\n"
     "Show events for a specific day:\n"
-    "  <Mon-Sun>      next occurrence of that weekday\n"
-    "  <dd-mm-yyyy>   specific date\n"
+    "  &lt;Mon-Sun&gt;      next occurrence of that weekday\n"
+    "  &lt;dd-mm-yyyy&gt;   specific date\n"
     "\n"
     "e.g.  Fri\n"
     "      Sat\n"
@@ -55,22 +55,26 @@ HELP_VIEW = (
 HELP_ADD = (
     "➕ Add an event\n"
     "\n"
-    "add <calendar> <title> <date> <time>\n"
+    "add &lt;calendar&gt; &lt;title&gt; &lt;date&gt; &lt;time&gt;\n"
     "\n"
     "date and time are both optional:\n"
     "  omit date  → today\n"
     "  omit time  → all-day event\n"
     "  omit both  → all-day event today\n"
     "\n"
-    "For a weekly recurring event, use 'every':\n"
-    "  add <calendar> <title> every <day> <time>\n"
+    "For a multi-day event, use 'to':\n"
+    "  add &lt;calendar&gt; &lt;title&gt; &lt;date&gt; to &lt;date&gt;\n"
     "\n"
-    "date  :  today · tomorrow · <Mon-Sun> · <dd-mm-yyyy>\n"
+    "For a weekly recurring event, use 'every':\n"
+    "  add &lt;calendar&gt; &lt;title&gt; every &lt;day&gt; &lt;time&gt;\n"
+    "\n"
+    "date  :  today · tomorrow · &lt;Mon-Sun&gt; · &lt;dd-mm-yyyy&gt;\n"
     "time  :  HH:MM-HH:MM  or  HH:MM  (end defaults to +1h)\n"
     "\n"
     "e.g.  add YounHa tennis tomorrow 17:00-18:00\n"
     "      add SungHwan dentist 14:00\n"
     "      add Family BBQ Sat\n"
+    "      add HaNeul summer camp 14-07-2026 to 18-07-2026\n"
     "      add YounHa tennis every Mon 17:00-18:00\n"
     "      add HaNeul swimming every Wed"
 )
@@ -78,13 +82,13 @@ HELP_ADD = (
 HELP_EDIT = (
     "✏️ Edit an event\n"
     "\n"
-    "edit <calendar> <title> time <new_time>\n"
-    "edit <calendar> <title> date <new_date>\n"
-    "edit <calendar> <title> title <new_title>\n"
+    "edit &lt;calendar&gt; &lt;title&gt; time &lt;new_time&gt;\n"
+    "edit &lt;calendar&gt; &lt;title&gt; date &lt;new_date&gt;\n"
+    "edit &lt;calendar&gt; &lt;title&gt; title &lt;new_title&gt;\n"
     "\n"
     "Molly searches the next 90 days by title.\n"
     "To narrow to a specific day, add a date after the calendar:\n"
-    "  edit <calendar> <date> <title> ...\n"
+    "  edit &lt;calendar&gt; &lt;date&gt; &lt;title&gt; ...\n"
     "\n"
     "e.g.  edit SungHwan dentist time 15:00-16:00\n"
     "      edit YounHa tennis date Sat\n"
@@ -95,34 +99,38 @@ HELP_EDIT = (
 HELP_DELETE = (
     "🗑 Delete an event\n"
     "\n"
-    "delete <calendar> <title>\n"
+    "delete &lt;calendar&gt; &lt;title&gt;\n"
     "\n"
     "Molly searches the next 90 days by title.\n"
     "To narrow to a specific day, add a date after the calendar:\n"
-    "  delete <calendar> <date> <title>\n"
+    "  delete &lt;calendar&gt; &lt;date&gt; &lt;title&gt;\n"
     "\n"
     "If multiple events match, Molly lists them\n"
     "and asks you to include a date.\n"
     "\n"
+    "To delete an entire recurring series:\n"
+    "  delete all &lt;calendar&gt; &lt;title&gt;\n"
+    "\n"
     "e.g.  delete YounHa tennis\n"
     "      delete SungHwan today dentist\n"
-    "      delete Family 25-12-2026 Christmas dinner"
+    "      delete Family 25-12-2026 Christmas dinner\n"
+    "      delete all YounHa tennis"
 )
 
 HELP_SEARCH = (
     "🔍 Search & browse\n"
     "\n"
     "Search by keyword (next 90 days):\n"
-    "  search <keyword>\n"
+    "  search &lt;keyword&gt;\n"
     "\n"
     "Show the very next upcoming event:\n"
     "  next                  across all calendars\n"
-    "  next <calendar>       for one person\n"
+    "  next &lt;calendar&gt;       for one person\n"
     "\n"
     "Show multiple upcoming events:\n"
     "  upcoming              next 10 events, all calendars\n"
-    "  upcoming <calendar>   next 10 events for one person\n"
-    "  upcoming <calendar> <n>   next N events (max 50)\n"
+    "  upcoming &lt;calendar&gt;   next 10 events for one person\n"
+    "  upcoming &lt;calendar&gt; &lt;n&gt;   next N events (max 50)\n"
     "\n"
     "e.g.  search tennis\n"
     "      next YounHa\n"
@@ -134,7 +142,7 @@ HELP_CALENDARS = (
     "📋 Calendars\n"
     "\n"
     + "\n".join(f"  {name}" for name in config.VALID_CALENDAR_NAMES) + "\n"
-    "\n"
+    + "\n"
     "Use the calendar name exactly as shown above\n"
     "(not case-sensitive).\n"
     "\n"
@@ -195,6 +203,9 @@ def parse(text: str) -> dict:
     # ── add / delete / edit / search / next <cal> ────────────────────────────
     if lower.startswith("add "):
         return _parse_add(text)
+
+    if lower.startswith("delete all "):
+        return _parse_delete_all(text)
 
     if lower.startswith("delete "):
         return _parse_delete(text)
@@ -281,6 +292,30 @@ def _parse_add(text: str) -> dict:
     lower_tokens = [t.lower() for t in tokens]
     if "every" in lower_tokens:
         return _parse_add_recurring(tokens, cal_key, cal_token)
+
+    # ── Detect multi-day: "to" keyword between two dates ─────────────────────
+    if "to" in lower_tokens:
+        to_idx = lower_tokens.index("to")
+        # "to" must not be first or last, and neighbours must be dates
+        if 0 < to_idx < len(tokens) - 1:
+            start_date = utils.parse_date(tokens[to_idx - 1].lower())
+            end_date   = utils.parse_date(tokens[to_idx + 1].lower())
+            if start_date is not None and end_date is not None:
+                title_tokens = tokens[1:to_idx - 1]
+                title = " ".join(title_tokens).strip()
+                if not title:
+                    return {"error": "❌ Event title cannot be empty.\nExample: add HaNeul summer camp 14-07-2026 to 18-07-2026"}
+                if end_date < start_date:
+                    return {"error": "❌ End date cannot be before start date."}
+                return {
+                    "cmd": "add",
+                    "calendar": cal_key,
+                    "calendar_display": cal_token,
+                    "title": title,
+                    "date": start_date,
+                    "end_date": end_date,
+                    "all_day": True,
+                }
 
     # ── Non-recurring: classify the last token ────────────────────────────────
     last = tokens[-1]
@@ -596,6 +631,40 @@ def _parse_upcoming(text: str) -> dict:
             }
 
     return {"cmd": "upcoming", "calendar": cal_key, "limit": limit}
+
+
+def _parse_delete_all(text: str) -> dict:
+    """Parse: delete all <calendar> <title> — deletes entire recurring series."""
+    rest = text[11:].strip()  # len("delete all ") == 11
+    tokens = rest.split()
+
+    if len(tokens) < 2:
+        return {
+            "error": (
+                "❌ Not enough arguments.\n\n"
+                "Usage: delete all <calendar> <title>\n"
+                "Example: delete all YounHa tennis"
+            )
+        }
+
+    cal_token = tokens[0]
+    cal_key = cal_token.lower()
+
+    if cal_key not in config.CALENDARS:
+        valid = ", ".join(config.VALID_CALENDAR_NAMES)
+        return {
+            "error": (
+                f"❌ Unknown calendar: '{cal_token}'\n"
+                f"Valid calendars: {valid}"
+            )
+        }
+
+    title = " ".join(tokens[1:])
+    return {
+        "cmd": "delete_all",
+        "calendar": cal_key,
+        "title": title,
+    }
 
 
 def _parse_delete(text: str) -> dict:

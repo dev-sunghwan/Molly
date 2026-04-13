@@ -151,13 +151,20 @@ def add_event(service, cmd: dict) -> str:
     all_day = cmd.get("all_day", False)
 
     if all_day:
-        date_str = cmd["date"].strftime("%Y-%m-%d")
+        start_date_str = cmd["date"].strftime("%Y-%m-%d")
+        # Multi-day: end date in Google Calendar API is exclusive, so add 1 day
+        if "end_date" in cmd:
+            end_date_exclusive = cmd["end_date"] + timedelta(days=1)
+            end_date_str = end_date_exclusive.strftime("%Y-%m-%d")
+            reply_time_str = f"All day  ({cmd['date'].strftime('%d-%m-%Y')} – {cmd['end_date'].strftime('%d-%m-%Y')})"
+        else:
+            end_date_str = start_date_str
+            reply_time_str = "All day"
         event_body = {
             "summary": cmd["title"],
-            "start": {"date": date_str},
-            "end":   {"date": date_str},
+            "start": {"date": start_date_str},
+            "end":   {"date": end_date_str},
         }
-        reply_time_str = "All day"
     else:
         start_dt = utils.make_datetime(cmd["date"], cmd["start"])
         end_dt   = utils.make_datetime(cmd["date"], cmd["end"])
@@ -175,13 +182,123 @@ def add_event(service, cmd: dict) -> str:
         service.events().insert(calendarId=cal_id, body=event_body).execute()
         date_str_display = cmd["date"].strftime("%d-%m-%Y")
         recurring_label = "  (weekly recurring)" if "recurrence" in cmd else ""
-        return (
+        reply = (
             f"✅ Added to {cal_display}:\n"
             f"  {cmd['title']}\n"
             f"  {date_str_display}  {reply_time_str}{recurring_label}"
         )
+        # Conflict check — only for timed events (all-day events can't conflict on time)
+        if not all_day:
+            conflicts = _find_conflicts(service, cal_id, cmd["date"],
+                                        cmd["start"], cmd["end"], cmd["title"])
+            if conflicts:
+                tz = utils.TZ
+                lines = ["\n⚠️ Conflicts in same calendar:"]
+                for ev in conflicts:
+                    s = ev.get("start", {})
+                    dt = datetime.fromisoformat(s["dateTime"]).astimezone(tz)
+                    e_end = ev.get("end", {})
+                    dt_end = datetime.fromisoformat(e_end["dateTime"]).astimezone(tz)
+                    lines.append(f"  • {dt.strftime('%H:%M')}–{dt_end.strftime('%H:%M')}  {ev.get('summary', '')}")
+                reply += "\n".join(lines)
+        return reply
     except HttpError as e:
         return f"❌ Failed to add event: {e}"
+
+
+def _find_conflicts(service, cal_id: str, event_date, start_str: str, end_str: str, new_title: str) -> list[dict]:
+    """Return existing timed events in cal_id that overlap with start_str–end_str on event_date."""
+    tz = utils.TZ
+    new_start = utils.make_datetime(event_date, start_str)
+    new_end   = utils.make_datetime(event_date, end_str)
+    time_min  = tz.localize(datetime(event_date.year, event_date.month, event_date.day, 0, 0, 0)).isoformat()
+    time_max  = tz.localize(datetime(event_date.year, event_date.month, event_date.day, 23, 59, 59)).isoformat()
+    try:
+        result = (
+            service.events()
+            .list(calendarId=cal_id, timeMin=time_min, timeMax=time_max,
+                  singleEvents=True, orderBy="startTime")
+            .execute()
+        )
+    except HttpError:
+        return []
+    conflicts = []
+    for ev in result.get("items", []):
+        s = ev.get("start", {})
+        if "dateTime" not in s:
+            continue  # skip all-day
+        if ev.get("summary", "") == new_title:
+            continue  # the event we just added
+        ev_start = datetime.fromisoformat(s["dateTime"]).astimezone(tz)
+        ev_end   = datetime.fromisoformat(ev.get("end", {})["dateTime"]).astimezone(tz)
+        # Overlap: new_start < ev_end  AND  new_end > ev_start
+        if new_start < ev_end and new_end > ev_start:
+            conflicts.append(ev)
+    return conflicts
+
+
+# ── Delete recurring series ───────────────────────────────────────────────────
+
+def delete_recurring_series(service, cal_key: str, title: str) -> str:
+    """
+    Find a recurring event by title and delete the entire series (master event).
+    Searches the next 90 days for an instance, then deletes the master.
+    - 0 matches → not found
+    - 1 recurring match → master deleted
+    - 1 non-recurring match → single event deleted (with note)
+    - 2+ matches → list them, nothing deleted
+    """
+    cal_id = config.CALENDARS[cal_key]
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
+    tz = utils.TZ
+    today = utils._today_local()
+    end = today + timedelta(days=90)
+    time_min = tz.localize(datetime(today.year, today.month, today.day, 0, 0, 0)).isoformat()
+    time_max = tz.localize(datetime(end.year, end.month, end.day, 23, 59, 59)).isoformat()
+
+    try:
+        result = (
+            service.events()
+            .list(calendarId=cal_id, timeMin=time_min, timeMax=time_max,
+                  singleEvents=True, orderBy="startTime")
+            .execute()
+        )
+        events = result.get("items", [])
+        matches = [e for e in events if e.get("summary", "").lower() == title.lower()]
+
+        if not matches:
+            return f"❌ No event '{title}' found in {cal_display} (next 90 days)"
+
+        if len(matches) > 1:
+            lines = [f"❌ Multiple events named '{title}' in {cal_display}. Nothing deleted. Specify with 'delete':\n"]
+            seen = set()
+            for e in matches:
+                master_id = e.get("recurringEventId", e.get("id", ""))
+                if master_id in seen:
+                    continue
+                seen.add(master_id)
+                start = e.get("start", {})
+                if "dateTime" in start:
+                    dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+                    lines.append(f"  • {dt.strftime('%d-%m-%Y')}  {dt.strftime('%H:%M')}  {e.get('summary')}")
+                else:
+                    lines.append(f"  • {start.get('date', '?')}  All day  {e.get('summary')}")
+            return "\n".join(lines)
+
+        event = matches[0]
+        recurring_event_id = event.get("recurringEventId")
+
+        if recurring_event_id:
+            # Delete the master event — removes the entire series
+            service.events().delete(calendarId=cal_id, eventId=recurring_event_id).execute()
+            return f"Deleted entire series from {cal_display}:\n  {title}"
+        else:
+            # Not a recurring event — delete the single instance
+            service.events().delete(calendarId=cal_id, eventId=event["id"]).execute()
+            return f"Deleted from {cal_display}:\n  {title}\n  (not a recurring event — single occurrence deleted)"
+
+    except HttpError as e:
+        return f"❌ Failed to delete series: {e}"
 
 
 # ── Edit event ───────────────────────────────────────────────────────────────
@@ -444,7 +561,7 @@ def format_search_results(events: list[dict], keyword: str) -> str:
         return f"No upcoming events matching '{keyword}'."
 
     tz = utils.TZ
-    lines = [f"Search: '{keyword}'"]
+    lines = [f"<b>Search: '{keyword}'</b>"]
     for ev in events:
         start = ev.get("start", {})
         cal_label = ev.get("_calendar_name", "")
@@ -566,7 +683,7 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
 
     tz = utils.TZ
     label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "All calendars"
-    lines = [f"Upcoming ({label}, next {limit}):"]
+    lines = [f"<b>Upcoming ({label}, next {limit}):</b>"]
 
     # Group by date
     from datetime import date as date_type
@@ -582,7 +699,7 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
         by_date[d].append(ev)
 
     for d, day_events in by_date.items():
-        lines.append(f"\n{d.strftime('%a %d-%m-%Y')}")
+        lines.append(f"\n<b>{d.strftime('%a %d-%m-%Y')}</b>")
         for ev in day_events:
             start = ev.get("start", {})
             cal_name = ev.get("_calendar_name", "")
@@ -610,7 +727,7 @@ def format_next_events(events: list[dict], cal_key: str | None) -> str:
 
     tz = utils.TZ
     label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "all calendars"
-    lines = [f"Next event ({label}):"]
+    lines = [f"<b>Next event ({label}):</b>"]
     for ev in events:
         start = ev.get("start", {})
         cal_name = ev.get("_calendar_name", "")

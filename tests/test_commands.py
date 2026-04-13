@@ -348,6 +348,33 @@ def test_delete_with_date_still_works():
     assert result["title"] == "dentist"
 
 
+# ── multi-day events ─────────────────────────────────────────────────────────
+
+def test_add_multiday():
+    result = commands.parse("add HaNeul summer camp 14-07-2026 to 18-07-2026")
+    assert result["cmd"] == "add"
+    assert result["title"] == "summer camp"
+    assert result["date"] == date(2026, 7, 14)
+    assert result["end_date"] == date(2026, 7, 18)
+    assert result.get("all_day") is True
+
+def test_add_multiday_dayname():
+    result = commands.parse("add Family ski trip 20-07-2026 to 24-07-2026")
+    assert result["cmd"] == "add"
+    assert result["title"] == "ski trip"
+    assert result["date"] == date(2026, 7, 20)
+    assert result["end_date"] == date(2026, 7, 24)
+    assert result.get("all_day") is True
+
+def test_add_multiday_end_before_start():
+    result = commands.parse("add HaNeul camp 18-07-2026 to 14-07-2026")
+    assert "error" in result
+
+def test_add_multiday_empty_title():
+    result = commands.parse("add HaNeul 14-07-2026 to 18-07-2026")
+    assert "error" in result
+
+
 # ── upcoming ─────────────────────────────────────────────────────────────────
 
 def test_upcoming_all():
@@ -420,6 +447,8 @@ if __name__ == "__main__":
         test_search_basic, test_search_multiword, test_search_empty, test_search_empty_keyword,
         test_next_all, test_next_calendar, test_next_unknown_calendar,
         test_delete_no_date, test_delete_no_date_multiword, test_delete_with_date_still_works,
+        test_add_multiday, test_add_multiday_dayname,
+        test_add_multiday_end_before_start, test_add_multiday_empty_title,
         test_upcoming_all, test_upcoming_calendar, test_upcoming_calendar_with_limit,
         test_upcoming_limit_capped, test_upcoming_all_with_limit,
         test_upcoming_unknown_calendar, test_upcoming_bad_limit,

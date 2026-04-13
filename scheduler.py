@@ -55,6 +55,15 @@ _reminded: set[str] = _load_reminded()
 _last_check: datetime | None = None
 
 
+def _cal_key_for_event(event: dict) -> str:
+    """Return the lowercase calendar key for an event dict."""
+    display = event.get("_calendar_name", "").lower()
+    return next(
+        (k for k, v in config.CALENDAR_DISPLAY_NAMES.items() if v.lower() == display),
+        display,
+    )
+
+
 def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     """
     Build and return an AsyncIOScheduler with all jobs registered.
@@ -69,6 +78,7 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=tz)
 
     hour, minute = map(int, config.SCHEDULER_SUMMARY_TIME.split(":"))
+    t_hour, t_minute = map(int, config.SCHEDULER_TOMORROW_SUMMARY_TIME.split(":"))
 
     scheduler.add_job(
         _daily_summary,
@@ -76,7 +86,16 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
         args=[gcal_service, bot],
         id="daily_summary",
         name="Daily morning summary",
-        misfire_grace_time=300,  # fire up to 5 min late if bot was briefly down
+        misfire_grace_time=300,
+    )
+
+    scheduler.add_job(
+        _tomorrow_summary,
+        trigger=CronTrigger(hour=t_hour, minute=t_minute, timezone=tz),
+        args=[gcal_service, bot],
+        id="tomorrow_summary",
+        name="Tomorrow evening preview",
+        misfire_grace_time=300,
     )
 
     scheduler.add_job(
@@ -92,23 +111,60 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
 
 
 async def _daily_summary(gcal_service, bot) -> None:
-    """Send today's event summary to all allowed users."""
+    """Send today's event summary to each user, filtered to their subscribed calendars."""
     today = utils._today_local()
     log.info("[Scheduler] Sending daily summary for %s", today)
-    try:
-        events = calendar_client.list_events(gcal_service, today)
-        text = utils.format_event_list(events, today)
-    except Exception as e:
-        log.exception("[Scheduler] Failed to fetch events for daily summary")
-        text = f"Could not fetch today's events. ({type(e).__name__})"
 
-    for user_id in config.ALLOWED_USER_IDS:
+    try:
+        all_events = calendar_client.list_events(gcal_service, today)
+    except Exception:
+        log.exception("[Scheduler] Failed to fetch events for daily summary")
+        error_text = "Could not fetch today's events."
+        for user_id in config.ALLOWED_USER_IDS:
+            try:
+                await bot.send_message(chat_id=user_id, text=error_text, parse_mode="HTML")
+            except Exception as e:
+                log.warning("[Scheduler] Could not send error to user_id=%s: %s", user_id, e)
+        return
+
+    for user_id, udata in config.USERS.items():
+        subscribed = set(udata["reminder_calendars"])
+        user_events = [
+            ev for ev in all_events
+            if _cal_key_for_event(ev) in subscribed
+        ]
+        text = utils.format_event_list(user_events, today)
         try:
-            await bot.send_message(chat_id=user_id, text=text)
+            await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
         except Exception as e:
-            log.warning(
-                "[Scheduler] Could not send daily summary to user_id=%s: %s", user_id, e
-            )
+            log.warning("[Scheduler] Could not send daily summary to user_id=%s: %s", user_id, e)
+
+
+async def _tomorrow_summary(gcal_service, bot) -> None:
+    """Send tomorrow's event preview to each user, filtered to their subscribed calendars."""
+    from datetime import timedelta
+    tomorrow = utils._today_local() + timedelta(days=1)
+    log.info("[Scheduler] Sending tomorrow summary for %s", tomorrow)
+
+    try:
+        all_events = calendar_client.list_events(gcal_service, tomorrow)
+    except Exception:
+        log.exception("[Scheduler] Failed to fetch events for tomorrow summary")
+        return
+
+    for user_id, udata in config.USERS.items():
+        subscribed = set(udata["reminder_calendars"])
+        user_events = [
+            ev for ev in all_events
+            if _cal_key_for_event(ev) in subscribed
+        ]
+        text = utils.format_event_list(user_events, tomorrow)
+        # Prefix to distinguish from the morning summary
+        text = "Tomorrow:\n" + text
+        try:
+            await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
+        except Exception as e:
+            log.warning("[Scheduler] Could not send tomorrow summary to user_id=%s: %s", user_id, e)
 
 
 async def _check_reminders(gcal_service, bot) -> None:
@@ -176,9 +232,12 @@ async def _check_reminders(gcal_service, bot) -> None:
                     "[Scheduler] Sending reminder for '%s' at %s",
                     event.get("summary"), start_dt.strftime("%H:%M"),
                 )
-                for user_id in config.ALLOWED_USER_IDS:
+                event_cal_key = _cal_key_for_event(event)
+                for user_id, udata in config.USERS.items():
+                    if event_cal_key not in udata["reminder_calendars"]:
+                        continue
                     try:
-                        await bot.send_message(chat_id=user_id, text=text)
+                        await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
                     except Exception as e:
                         log.warning(
                             "[Scheduler] Could not send reminder to user_id=%s: %s",

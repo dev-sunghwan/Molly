@@ -8,11 +8,19 @@
     "YounHo":   "b0fc45820ba3a51774033a9410adc8b8b7bc69b6a54a16185e206db4b8d4bdfc@group.calendar.google.com",
     "Family":   "0031182d2834d1a360c965234cb6eef6da974059506287fca72e1eb0bf1ea9bb@group.calendar.google.com"
   },
-  "allowed_user_ids": [
-    8289608844
-  ],
+  "users": {
+    "8289608844": {
+      "name": "SungHwan",
+      "reminder_calendars": ["SungHwan", "HaNeul", "YounHa", "YounHo", "Family"]
+    },
+    "8793305621": {
+      "name": "JeeYoung",
+      "reminder_calendars": ["JeeYoung", "HaNeul", "YounHa", "YounHo", "Family"]
+    }
+  },
   "scheduler": {
     "daily_summary_time": "08:00",
+    "tomorrow_summary_time": "21:00",
     "reminder_minutes_before": 60
   }
 }
