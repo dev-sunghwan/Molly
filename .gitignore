@@ -2,6 +2,7 @@
 .env
 credentials.json
 token.json
+gmail_token.json
 
 # Logs
 molly.log
@@ -13,6 +14,12 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+.miniforge3/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 *.egg-info/
 dist/
 build/

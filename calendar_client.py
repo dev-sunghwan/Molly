@@ -18,6 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 import config
+import local_calendar_backend
 import utils
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
@@ -32,6 +33,9 @@ def authenticate():
     - Opens a browser for the consent flow on first run.
     Returns a Google API service object.
     """
+    if config.CALENDAR_BACKEND == "local":
+        return local_calendar_backend.authenticate()
+
     creds = None
 
     if config.TOKEN_PATH.exists():
@@ -59,6 +63,9 @@ def list_events_range(service, start_date: date, end_date: date) -> list[dict]:
     Return all events from start_date to end_date (inclusive) across all calendars,
     sorted by start time.
     """
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.list_events_range(service, start_date, end_date)
+
     tz = utils.TZ
     time_min = tz.localize(datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)).isoformat()
     time_max = tz.localize(datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)).isoformat()
@@ -746,3 +753,26 @@ def format_next_events(events: list[dict], cal_key: str | None) -> str:
         lines.append(f"  • {date_str}  {time_str}  [{cal_name}] {summary}")
 
     return "\n".join(lines)
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.list_events(service, target_date)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.add_event(service, cmd)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.delete_recurring_series(service, cal_key, title)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.find_and_edit_event(service, cal_key, target_date, title, changes)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.find_and_delete_event(service, cal_key, target_date, title)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.search_events(service, keyword, days)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.get_next_events(service, cal_key, limit)
+
+    if getattr(service, "backend", None) == "local":
+        return local_calendar_backend.get_upcoming_events(service, cal_key, limit)

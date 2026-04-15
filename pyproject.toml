@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molly"
+version = "0.1.0"
+description = "Family scheduling assistant built around Telegram and Google Calendar."
+readme = "implementation_plan.md"
+requires-python = ">=3.10"
+dependencies = [
+  "apscheduler==3.10.4",
+  "google-api-python-client==2.136.0",
+  "google-auth-oauthlib==1.2.1",
+  "python-dotenv==1.0.1",
+  "python-telegram-bot==21.10",
+  "pytz==2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6.0",
+]
+
+[tool.setuptools]
+py-modules = [
+  "bot",
+  "calendar_client",
+  "clarification_state",
+  "commands",
+  "config",
+  "email_extraction",
+  "gmail_adapter",
+  "gmail_client",
+  "inbox_processor",
+  "assistant_workflow",
+  "intent_adapter",
+  "intent_models",
+  "local_calendar_backend",
+  "scheduler",
+  "state_store",
+  "telegram_nlu",
+  "telegram_extraction",
+  "telegram_extractor_provider",
+  "utils",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+  ".git",
+  ".miniforge3",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

@@ -14,6 +14,7 @@ load_dotenv(ROOT / ".env")
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+CALENDAR_BACKEND: str = os.getenv("MOLLY_CALENDAR_BACKEND", "local").strip().lower()
 
 # ── Load config.json ──────────────────────────────────────────────────────────
 _config_path = ROOT / "config.json"
@@ -58,7 +59,11 @@ VALID_CALENDAR_NAMES: list[str] = list(_cfg["calendars"].keys())  # original cas
 
 CREDENTIALS_PATH: Path = ROOT / "credentials.json"
 TOKEN_PATH: Path = ROOT / "token.json"
+GMAIL_CREDENTIALS_PATH: Path = ROOT / "credentials.json"
+GMAIL_TOKEN_PATH: Path = ROOT / "gmail_token.json"
 LOG_PATH: Path = ROOT / "molly.log"
+STATE_DB_PATH: Path = ROOT / "data" / "molly_state.db"
+LOCAL_CALENDAR_DB_PATH: Path = ROOT / "data" / "local_calendar.db"
 
 
 def validate():
@@ -66,13 +71,16 @@ def validate():
     errors = []
     if not TELEGRAM_BOT_TOKEN:
         errors.append("TELEGRAM_BOT_TOKEN is not set in .env")
-    if not CREDENTIALS_PATH.exists():
-        errors.append(f"credentials.json not found at {CREDENTIALS_PATH}")
     if not ALLOWED_USER_IDS or 0 in ALLOWED_USER_IDS:
         errors.append("allowed_user_ids in config.json contains placeholder value 0 — set a real Telegram user ID")
-    for name, cal_id in CALENDARS.items():
-        if cal_id.startswith("REPLACE_WITH"):
-            errors.append(f"Calendar ID for '{name}' is still a placeholder in config.json")
+    if CALENDAR_BACKEND == "google":
+        if not CREDENTIALS_PATH.exists():
+            errors.append(f"credentials.json not found at {CREDENTIALS_PATH}")
+        for name, cal_id in CALENDARS.items():
+            if cal_id.startswith("REPLACE_WITH"):
+                errors.append(f"Calendar ID for '{name}' is still a placeholder in config.json")
+    elif CALENDAR_BACKEND != "local":
+        errors.append(f"Unsupported MOLLY_CALENDAR_BACKEND: '{CALENDAR_BACKEND}'")
     if errors:
         msg = "\n".join(f"  ❌ {e}" for e in errors)
         raise SystemExit(f"[Molly] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")
