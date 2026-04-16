@@ -15,7 +15,7 @@ from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-import calendar_client
+from calendar_repository import CalendarRepository
 import config
 import utils
 
@@ -64,14 +64,14 @@ def _cal_key_for_event(event: dict) -> str:
     )
 
 
-def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
+def create_scheduler(calendar_repo: CalendarRepository, bot) -> AsyncIOScheduler:
     """
     Build and return an AsyncIOScheduler with all jobs registered.
     Call scheduler.start() after this.
 
     Parameters
     ----------
-    gcal_service : Google Calendar API service object
+    calendar_repo : backend-agnostic calendar repository
     bot          : telegram.Bot instance (app.bot from the Application object)
     """
     tz = utils.TZ
@@ -83,7 +83,7 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     scheduler.add_job(
         _daily_summary,
         trigger=CronTrigger(hour=hour, minute=minute, timezone=tz),
-        args=[gcal_service, bot],
+        args=[calendar_repo, bot],
         id="daily_summary",
         name="Daily morning summary",
         misfire_grace_time=300,
@@ -92,7 +92,7 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     scheduler.add_job(
         _tomorrow_summary,
         trigger=CronTrigger(hour=t_hour, minute=t_minute, timezone=tz),
-        args=[gcal_service, bot],
+        args=[calendar_repo, bot],
         id="tomorrow_summary",
         name="Tomorrow evening preview",
         misfire_grace_time=300,
@@ -101,7 +101,7 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     scheduler.add_job(
         _check_reminders,
         trigger=CronTrigger(minute="*/5", timezone=tz),
-        args=[gcal_service, bot],
+        args=[calendar_repo, bot],
         id="check_reminders",
         name="Per-event reminder check",
         misfire_grace_time=60,
@@ -110,13 +110,13 @@ def create_scheduler(gcal_service, bot) -> AsyncIOScheduler:
     return scheduler
 
 
-async def _daily_summary(gcal_service, bot) -> None:
+async def _daily_summary(calendar_repo: CalendarRepository, bot) -> None:
     """Send today's event summary to each user, filtered to their subscribed calendars."""
     today = utils._today_local()
     log.info("[Scheduler] Sending daily summary for %s", today)
 
     try:
-        all_events = calendar_client.list_events(gcal_service, today)
+        all_events = calendar_repo.list_events(today)
     except Exception:
         log.exception("[Scheduler] Failed to fetch events for daily summary")
         error_text = "Could not fetch today's events."
@@ -140,14 +140,14 @@ async def _daily_summary(gcal_service, bot) -> None:
             log.warning("[Scheduler] Could not send daily summary to user_id=%s: %s", user_id, e)
 
 
-async def _tomorrow_summary(gcal_service, bot) -> None:
+async def _tomorrow_summary(calendar_repo: CalendarRepository, bot) -> None:
     """Send tomorrow's event preview to each user, filtered to their subscribed calendars."""
     from datetime import timedelta
     tomorrow = utils._today_local() + timedelta(days=1)
     log.info("[Scheduler] Sending tomorrow summary for %s", tomorrow)
 
     try:
-        all_events = calendar_client.list_events(gcal_service, tomorrow)
+        all_events = calendar_repo.list_events(tomorrow)
     except Exception:
         log.exception("[Scheduler] Failed to fetch events for tomorrow summary")
         return
@@ -167,7 +167,7 @@ async def _tomorrow_summary(gcal_service, bot) -> None:
             log.warning("[Scheduler] Could not send tomorrow summary to user_id=%s: %s", user_id, e)
 
 
-async def _check_reminders(gcal_service, bot) -> None:
+async def _check_reminders(calendar_repo: CalendarRepository, bot) -> None:
     """
     Send reminders for events whose reminder_time (= start - reminder_delta)
     falls in the window (prev_check, now].
@@ -197,7 +197,7 @@ async def _check_reminders(gcal_service, bot) -> None:
     search_end   = (now  + reminder_delta + check_interval).date()
 
     try:
-        events = calendar_client.list_events_range(gcal_service, search_start, search_end)
+        events = calendar_repo.list_events_range(search_start, search_end)
     except Exception:
         log.exception("[Scheduler] Failed to fetch events for reminder check")
         return

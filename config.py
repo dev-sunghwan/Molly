@@ -15,6 +15,14 @@ load_dotenv(ROOT / ".env")
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 CALENDAR_BACKEND: str = os.getenv("MOLLY_CALENDAR_BACKEND", "local").strip().lower()
+TELEGRAM_EXTRACTOR_BACKEND: str = os.getenv(
+    "MOLLY_TELEGRAM_EXTRACTOR_BACKEND",
+    "heuristic",
+).strip().lower()
+OPENCLAW_API_URL: str = os.getenv("OPENCLAW_API_URL", "").strip()
+OPENCLAW_MODEL: str = os.getenv("OPENCLAW_MODEL", "").strip()
+OPENCLAW_API_KEY: str = os.getenv("OPENCLAW_API_KEY", "").strip()
+OPENCLAW_TIMEOUT_SECONDS: int = int(os.getenv("OPENCLAW_TIMEOUT_SECONDS", "20"))
 
 # ── Load config.json ──────────────────────────────────────────────────────────
 _config_path = ROOT / "config.json"
@@ -81,6 +89,15 @@ def validate():
                 errors.append(f"Calendar ID for '{name}' is still a placeholder in config.json")
     elif CALENDAR_BACKEND != "local":
         errors.append(f"Unsupported MOLLY_CALENDAR_BACKEND: '{CALENDAR_BACKEND}'")
+    if TELEGRAM_EXTRACTOR_BACKEND not in {"heuristic", "openclaw"}:
+        errors.append(
+            f"Unsupported MOLLY_TELEGRAM_EXTRACTOR_BACKEND: '{TELEGRAM_EXTRACTOR_BACKEND}'"
+        )
+    if TELEGRAM_EXTRACTOR_BACKEND == "openclaw":
+        if not OPENCLAW_API_URL:
+            errors.append("OPENCLAW_API_URL is required when using the openclaw Telegram extractor")
+        if not OPENCLAW_MODEL:
+            errors.append("OPENCLAW_MODEL is required when using the openclaw Telegram extractor")
     if errors:
         msg = "\n".join(f"  ❌ {e}" for e in errors)
         raise SystemExit(f"[Molly] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")

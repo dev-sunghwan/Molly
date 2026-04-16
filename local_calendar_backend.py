@@ -273,8 +273,19 @@ def _init_db() -> None:
                 end_time TEXT,
                 all_day INTEGER NOT NULL DEFAULT 0,
                 recurrence_json TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                source_backend TEXT,
+                source_event_id TEXT
             )
+            """
+        )
+        _ensure_column(conn, "local_events", "source_backend", "TEXT")
+        _ensure_column(conn, "local_events", "source_event_id", "TEXT")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_local_events_source_unique
+            ON local_events (source_backend, source_event_id)
+            WHERE source_backend IS NOT NULL AND source_event_id IS NOT NULL
             """
         )
 
@@ -290,6 +301,72 @@ def _seed_calendars() -> None:
                 """,
                 (key, display_name),
             )
+
+
+def import_event(
+    service: LocalCalendarService,
+    *,
+    calendar_key: str,
+    summary: str,
+    start_date_value: date,
+    end_date_value: date,
+    start_time: str | None,
+    end_time: str | None,
+    all_day: bool,
+    recurrence: list[str] | None = None,
+    source_backend: str | None = None,
+    source_event_id: str | None = None,
+) -> str:
+    _ = service
+    event_id = str(uuid.uuid4())
+    recurrence_json = json.dumps(recurrence or [])
+
+    with _connect() as conn:
+        if source_backend and source_event_id:
+            existing = conn.execute(
+                """
+                SELECT id FROM local_events
+                WHERE source_backend = ? AND source_event_id = ?
+                """,
+                (source_backend, source_event_id),
+            ).fetchone()
+            if existing is not None:
+                return "duplicate"
+
+        conn.execute(
+            """
+            INSERT INTO local_events (
+                id, calendar_key, summary, start_date, end_date,
+                start_time, end_time, all_day, recurrence_json, created_at,
+                source_backend, source_event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                calendar_key,
+                summary,
+                start_date_value.isoformat(),
+                end_date_value.isoformat(),
+                start_time,
+                end_time,
+                1 if all_day else 0,
+                recurrence_json,
+                datetime.now(utils.TZ).isoformat(),
+                source_backend,
+                source_event_id,
+            ),
+        )
+    return "imported"
+
+
+def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
+    existing_columns = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name in existing_columns:
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
 def _expand_events(start_date: date, end_date: date, calendar_key: str | None = None) -> list[dict]:

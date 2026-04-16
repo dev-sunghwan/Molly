@@ -8,6 +8,11 @@ gmail_token.json
 molly.log
 *.log
 
+# Local runtime data
+backups/
+data/*.db
+data/*.json
+
 # Python
 __pycache__/
 *.py[cod]

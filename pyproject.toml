@@ -25,6 +25,8 @@ dev = [
 
 [tool.setuptools]
 py-modules = [
+  "calendar_import",
+  "calendar_repository",
   "bot",
   "calendar_client",
   "clarification_state",
@@ -38,6 +40,11 @@ py-modules = [
   "intent_adapter",
   "intent_models",
   "local_calendar_backend",
+  "google_calendar_backend",
+  "molly_core",
+  "molly_core_requests",
+  "openclaw_molly_bridge",
+  "openclaw_telegram_provider",
   "scheduler",
   "state_store",
   "telegram_nlu",
@@ -49,6 +56,7 @@ py-modules = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 100

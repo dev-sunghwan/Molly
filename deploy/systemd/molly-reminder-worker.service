@@ -1,0 +1,14 @@
+[Unit]
+Description=Molly Reminder Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/sunghwan/projects/Molly
+ExecStart=/home/sunghwan/projects/Molly/.venv/bin/python /home/sunghwan/projects/Molly/scripts/run_reminder_worker.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
