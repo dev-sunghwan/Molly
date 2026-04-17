@@ -34,14 +34,16 @@ def build_create_event_prompt(message_text: str) -> str:
         '  "target_calendar": "sunghwan|jeeyoung|younha|haneul|younho|family",\n'
         '  "title": "string",\n'
         '  "target_date": "YYYY-MM-DD",\n'
+        '  "end_date": "YYYY-MM-DD or omitted",\n'
         '  "start_time": "HH:MM",\n'
-        '  "end_time": "HH:MM",\n'
+        '  "end_time": "HH:MM or omitted if unknown",\n'
         '  "all_day": false,\n'
         '  "raw_input": "original message",\n'
         '  "nlu": "openclaw",\n'
         '  "request_source": "openclaw_cli_bridge"\n'
         "}\n"
-        "Only output a request when the schedule information is complete.\n"
+        "If start_time is known but end_time is unknown for a one-off timed event, you may omit end_time. Molly will default it sensibly.\n"
+        "Only output a request when the schedule information is complete enough to schedule.\n"
         "If the request is incomplete or ambiguous, output:\n"
         '{ "status": "needs_clarification", "reason": "..." }\n\n'
         f"Telegram message:\n{message_text}\n"
@@ -109,10 +111,18 @@ def build_exec_tool_command(payload: dict[str, Any]) -> list[str]:
         str(payload["title"]),
         "--date",
         str(payload["target_date"]),
+        *(
+            ["--end-date", str(payload["end_date"])]
+            if payload.get("end_date")
+            else []
+        ),
         "--start",
         str(payload["start_time"]),
-        "--end",
-        str(payload["end_time"]),
+        *(
+            ["--end", str(payload["end_time"])]
+            if payload.get("end_time")
+            else []
+        ),
         "--raw-input",
         str(payload.get("raw_input", "")),
         "--nlu",

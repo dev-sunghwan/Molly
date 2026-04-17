@@ -81,3 +81,36 @@ def test_build_exec_tool_command_returns_shell_friendly_args():
     assert "younha" in command
     assert "--title" in command
     assert "Tennis" in command
+
+
+def test_build_exec_tool_command_includes_end_date_when_present():
+    command = build_exec_tool_command(
+        {
+            "action": "create_event",
+            "target_calendar": "younha",
+            "title": "Cub Indoor Camp",
+            "target_date": "2026-04-17",
+            "end_date": "2026-04-19",
+            "start_time": "18:45",
+            "end_time": "16:00",
+        }
+    )
+
+    assert "--end-date" in command
+    assert "2026-04-19" in command
+
+
+def test_build_exec_tool_command_omits_end_when_missing():
+    command = build_exec_tool_command(
+        {
+            "action": "create_event",
+            "target_calendar": "family",
+            "title": "Ferry",
+            "target_date": "2026-04-16",
+            "start_time": "17:00",
+        }
+    )
+
+    assert "--start" in command
+    assert "17:00" in command
+    assert "--end" not in command
