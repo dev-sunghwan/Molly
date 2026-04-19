@@ -225,7 +225,7 @@ async def _check_reminders(calendar_repo: CalendarRepository, bot) -> None:
                 label = f"[{cal_label}] " if cal_label else ""
                 text = (
                     f"Reminder — in {minutes_away} min:\n"
-                    f"  {label}{event.get('summary', '(no title)')}\n"
+                    f"  {label}{utils.event_display_summary(event)}\n"
                     f"  {start_dt.strftime('%H:%M')}"
                 )
                 log.info(

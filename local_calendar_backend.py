@@ -543,6 +543,7 @@ def _row_to_event(row: sqlite3.Row, occurrence_date: date, recurring: bool = Fal
     event: dict = {
         "id": row["id"] if not recurring else f"{row['id']}:{occurrence_date.isoformat()}",
         "summary": summary,
+        "_display_summary": summary,
         "_calendar_name": config.CALENDAR_DISPLAY_NAMES.get(row["calendar_key"], row["calendar_key"]),
         "_source_row": row,
         "_display_date": occurrence_date.strftime("%d-%m-%Y"),
