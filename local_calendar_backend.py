@@ -39,12 +39,52 @@ def list_events(service: LocalCalendarService, target_date: date) -> list[dict]:
 
 
 def add_event(service: LocalCalendarService, cmd: dict) -> str:
+    _ = service
     event_id = str(uuid.uuid4())
     recurrence = json.dumps(cmd.get("recurrence", []))
     all_day = bool(cmd.get("all_day", False))
     end_date = cmd.get("end_date", cmd["date"])
+    calendar_key = cmd["calendar"]
+    title = cmd["title"]
+    start_str = cmd.get("start")
+    end_str = cmd.get("end")
 
     with _connect() as conn:
+        existing = _find_exact_duplicate(
+            conn=conn,
+            calendar_key=calendar_key,
+            summary=title,
+            start_date_value=cmd["date"],
+            end_date_value=end_date,
+            start_time=start_str,
+            end_time=end_str,
+            all_day=all_day,
+        )
+        if existing is not None:
+            cal_display = config.CALENDAR_DISPLAY_NAMES.get(calendar_key, calendar_key)
+            if all_day:
+                if end_date != cmd["date"]:
+                    reply_time_str = (
+                        f"All day  ({utils.format_short_day_date(cmd['date'])} – "
+                        f"{utils.format_short_day_date(end_date)})"
+                    )
+                else:
+                    reply_time_str = "All day"
+            else:
+                if end_date != cmd["date"]:
+                    reply_time_str = (
+                        f"{utils.format_short_day_date(cmd['date'])} {start_str} – "
+                        f"{utils.format_short_day_date(end_date)} {end_str}"
+                    )
+                else:
+                    reply_time_str = f"{start_str}–{end_str}"
+            recurring_label = "  (weekly recurring)" if cmd.get("recurrence") else ""
+            return (
+                f"ℹ️ Already exists in {cal_display}:\n"
+                f"  {title}\n"
+                f"  {utils.format_short_day_date(cmd['date'])}  {reply_time_str}{recurring_label}"
+            )
+
         conn.execute(
             """
             INSERT INTO local_events (
@@ -54,43 +94,49 @@ def add_event(service: LocalCalendarService, cmd: dict) -> str:
             """,
             (
                 event_id,
-                cmd["calendar"],
-                cmd["title"],
+                calendar_key,
+                title,
                 cmd["date"].isoformat(),
                 end_date.isoformat(),
-                cmd.get("start"),
-                cmd.get("end"),
+                start_str,
+                end_str,
                 1 if all_day else 0,
                 recurrence,
                 datetime.now(utils.TZ).isoformat(),
             ),
         )
 
-    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cmd["calendar"], cmd["calendar"])
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(calendar_key, calendar_key)
     if all_day:
         if "end_date" in cmd:
             reply_time_str = (
-                f"All day  ({cmd['date'].strftime('%d-%m-%Y')} – {cmd['end_date'].strftime('%d-%m-%Y')})"
+                f"All day  ({utils.format_short_day_date(cmd['date'])} – {utils.format_short_day_date(cmd['end_date'])})"
             )
         else:
             reply_time_str = "All day"
     else:
-        reply_time_str = f"{cmd['start']}–{cmd['end']}"
+        if cmd.get("end_date") and cmd["end_date"] != cmd["date"]:
+            reply_time_str = (
+                f"{utils.format_short_day_date(cmd['date'])} {cmd['start']} – "
+                f"{utils.format_short_day_date(cmd['end_date'])} {cmd['end']}"
+            )
+        else:
+            reply_time_str = f"{cmd['start']}–{cmd['end']}"
 
     recurring_label = "  (weekly recurring)" if cmd.get("recurrence") else ""
     reply = (
         f"✅ Added to {cal_display}:\n"
         f"  {cmd['title']}\n"
-        f"  {cmd['date'].strftime('%d-%m-%Y')}  {reply_time_str}{recurring_label}"
+        f"  {utils.format_short_day_date(cmd['date'])}  {reply_time_str}{recurring_label}"
     )
 
     if not all_day:
         conflicts = _find_conflicts(
-            cmd["calendar"],
+            calendar_key,
             cmd["date"],
-            cmd["start"],
-            cmd["end"],
-            cmd["title"],
+            start_str,
+            end_str,
+            title,
             exclude_event_id=event_id,
         )
         if conflicts:
@@ -168,7 +214,8 @@ def find_and_edit_event(
         all_day = False
         end_date_value = new_date
     elif "date" in changes and not all_day:
-        end_date_value = new_date
+        duration_days = (date.fromisoformat(row["end_date"]) - date.fromisoformat(row["start_date"])).days
+        end_date_value = new_date + timedelta(days=duration_days)
     elif "date" in changes and all_day:
         duration_days = (date.fromisoformat(row["end_date"]) - date.fromisoformat(row["start_date"])).days
         end_date_value = new_date + timedelta(days=duration_days)
@@ -194,11 +241,17 @@ def find_and_edit_event(
     if all_day:
         time_disp = "All day"
     else:
-        time_disp = f"{start_time}–{end_time}"
+        if end_date_value != new_date:
+            time_disp = (
+                f"{utils.format_short_day_date(new_date)} {start_time} – "
+                f"{utils.format_short_day_date(end_date_value)} {end_time}"
+            )
+        else:
+            time_disp = f"{start_time}–{end_time}"
     return (
         f"✅ Updated in {cal_display}:\n"
         f"  {new_title}\n"
-        f"  {new_date.strftime('%d-%m-%Y')}  {time_disp}"
+        f"  {utils.format_short_day_date(new_date)}  {time_disp}"
     )
 
 
@@ -224,7 +277,8 @@ def find_and_delete_event(
     row = match["_source_row"]
     with _connect() as conn:
         conn.execute("DELETE FROM local_events WHERE id = ?", (row["id"],))
-    return f"Deleted from {cal_display}:\n  {title}\n  {match['_display_date']}"
+    match_date = utils.format_short_day_date(date.fromisoformat(row["start_date"]))
+    return f"Deleted from {cal_display}:\n  {title}\n  {match_date}"
 
 
 def search_events(service: LocalCalendarService, keyword: str, days: int = 90) -> list[dict]:
@@ -286,6 +340,21 @@ def _init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_local_events_source_unique
             ON local_events (source_backend, source_event_id)
             WHERE source_backend IS NOT NULL AND source_event_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS local_event_overrides (
+                event_id TEXT NOT NULL,
+                occurrence_date TEXT NOT NULL,
+                summary TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                all_day INTEGER,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (event_id, occurrence_date)
+            )
             """
         )
 
@@ -359,6 +428,42 @@ def import_event(
     return "imported"
 
 
+def _find_exact_duplicate(
+    *,
+    conn: sqlite3.Connection,
+    calendar_key: str,
+    summary: str,
+    start_date_value: date,
+    end_date_value: date,
+    start_time: str | None,
+    end_time: str | None,
+    all_day: bool,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT *
+        FROM local_events
+        WHERE calendar_key = ?
+          AND lower(summary) = lower(?)
+          AND start_date = ?
+          AND end_date = ?
+          AND start_time IS ?
+          AND end_time IS ?
+          AND all_day = ?
+        LIMIT 1
+        """,
+        (
+            calendar_key,
+            summary,
+            start_date_value.isoformat(),
+            end_date_value.isoformat(),
+            start_time,
+            end_time,
+            1 if all_day else 0,
+        ),
+    ).fetchone()
+
+
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:
     existing_columns = {
         row["name"]
@@ -411,34 +516,59 @@ def _expand_recurring_row(row: sqlite3.Row, start_date: date, end_date: date, re
     while cursor.weekday() != target_weekday:
         cursor += timedelta(days=1)
 
+    overrides = _load_overrides(row["id"])
     occurrences: list[dict] = []
     while cursor <= end_date:
         if cursor >= first_date:
-            occurrences.append(_row_to_event(row, cursor, recurring=True))
+            override = overrides.get(cursor.isoformat())
+            occurrences.append(_row_to_event(row, cursor, recurring=True, override=override))
         cursor += timedelta(days=7)
     return occurrences
 
 
-def _row_to_event(row: sqlite3.Row, occurrence_date: date, recurring: bool = False) -> dict:
+def _row_to_event(row: sqlite3.Row, occurrence_date: date, recurring: bool = False, override: dict | None = None) -> dict:
+    summary = row["summary"]
+    all_day = bool(row["all_day"])
+    start_time = row["start_time"]
+    end_time = row["end_time"]
+    metadata = {}
+    if override:
+        summary = override.get("summary") or summary
+        if override.get("all_day") is not None:
+            all_day = bool(override.get("all_day"))
+        start_time = override.get("start_time") or start_time
+        end_time = override.get("end_time") or end_time
+        metadata = dict(override.get("metadata") or {})
+
     event: dict = {
         "id": row["id"] if not recurring else f"{row['id']}:{occurrence_date.isoformat()}",
-        "summary": row["summary"],
+        "summary": summary,
         "_calendar_name": config.CALENDAR_DISPLAY_NAMES.get(row["calendar_key"], row["calendar_key"]),
         "_source_row": row,
         "_display_date": occurrence_date.strftime("%d-%m-%Y"),
     }
+    if metadata:
+        event.update(metadata)
 
     if recurring:
         event["recurringEventId"] = row["id"]
 
-    if row["all_day"]:
+    if all_day:
         end_date_value = occurrence_date + (date.fromisoformat(row["end_date"]) - date.fromisoformat(row["start_date"]))
         event["start"] = {"date": occurrence_date.isoformat()}
         event["end"] = {"date": (end_date_value + timedelta(days=1)).isoformat()}
         return event
 
-    start_dt = utils.make_datetime(occurrence_date, row["start_time"])
-    end_dt = utils.make_datetime(occurrence_date, row["end_time"])
+    if recurring:
+        duration_days = date.fromisoformat(row["end_date"]) - date.fromisoformat(row["start_date"])
+        start_date_value = occurrence_date
+        end_date_value = occurrence_date + duration_days
+    else:
+        start_date_value = date.fromisoformat(row["start_date"])
+        end_date_value = date.fromisoformat(row["end_date"])
+
+    start_dt = utils.make_datetime(start_date_value, start_time)
+    end_dt = utils.make_datetime(end_date_value, end_time)
     event["start"] = {"dateTime": start_dt.isoformat(), "timeZone": config.TIMEZONE}
     event["end"] = {"dateTime": end_dt.isoformat(), "timeZone": config.TIMEZONE}
     return event
@@ -506,3 +636,82 @@ def _rrule_to_weekday(byday: str) -> int | None:
 def _sort_key(ev: dict) -> str:
     start = ev.get("start", {})
     return start.get("dateTime", start.get("date", ""))
+
+
+def set_recurring_occurrence_override(
+    service: LocalCalendarService,
+    cal_key: str,
+    title: str,
+    target_date: date,
+    changes: dict,
+    metadata: dict | None = None,
+) -> str:
+    matches = _expanded_matches(cal_key, title, target_date)
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
+    if not matches:
+        return f"❌ No event '{title}' found in {cal_display} on {target_date.strftime('%d-%m-%Y')}"
+    if len(matches) > 1:
+        return _multiple_matches_message(cal_key, title, matches, action="changed")
+    match = matches[0]
+    if not match.get("recurringEventId"):
+        return find_and_edit_event(service, cal_key, target_date, title, changes)
+
+    row = match["_source_row"]
+    payload = {
+        "summary": changes.get("title", row["summary"]),
+        "start_time": changes.get("start", row["start_time"]),
+        "end_time": changes.get("end", row["end_time"]),
+        "all_day": 1 if changes.get("all_day", bool(row["all_day"])) else 0,
+        "metadata_json": json.dumps(metadata or {}, ensure_ascii=True, sort_keys=True),
+        "created_at": datetime.now(utils.TZ).isoformat(),
+    }
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO local_event_overrides (
+                event_id, occurrence_date, summary, start_time, end_time, all_day, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, occurrence_date) DO UPDATE SET
+                summary=excluded.summary,
+                start_time=excluded.start_time,
+                end_time=excluded.end_time,
+                all_day=excluded.all_day,
+                metadata_json=excluded.metadata_json,
+                created_at=excluded.created_at
+            """,
+            (
+                row["id"],
+                target_date.isoformat(),
+                payload["summary"],
+                payload["start_time"],
+                payload["end_time"],
+                payload["all_day"],
+                payload["metadata_json"],
+                payload["created_at"],
+            ),
+        )
+    label = changes.get("title", row["summary"])
+    time_disp = f"{payload['start_time']}–{payload['end_time']}" if payload['start_time'] and payload['end_time'] else "All day"
+    return (
+        f"✅ Updated occurrence in {cal_display}:\n"
+        f"  {label}\n"
+        f"  {utils.format_short_day_date(target_date)}  {time_disp}"
+    )
+
+
+def _load_overrides(event_id: str) -> dict[str, dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT occurrence_date, summary, start_time, end_time, all_day, metadata_json FROM local_event_overrides WHERE event_id = ?",
+            (event_id,),
+        ).fetchall()
+    result = {}
+    for row in rows:
+        result[row["occurrence_date"]] = {
+            "summary": row["summary"],
+            "start_time": row["start_time"],
+            "end_time": row["end_time"],
+            "all_day": row["all_day"],
+            "metadata": json.loads(row["metadata_json"] or '{}'),
+        }
+    return result
