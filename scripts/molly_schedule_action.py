@@ -14,9 +14,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from calendar_repository import CalendarRepository
 import config
+import gmail_client
+import gmail_confirmation
+import inbox_processor
 from molly_core import MollyCore
 from molly_core_requests import resolution_from_request
 import state_store
+from telegram import Bot
 
 
 def main() -> None:
@@ -33,6 +37,8 @@ def main() -> None:
     create_parser.add_argument("--raw-input", default="")
     create_parser.add_argument("--nlu", default="openclaw")
     create_parser.add_argument("--request-source", default="openclaw_exec_tool")
+    create_parser.add_argument("--actor-user-id", type=int)
+    create_parser.add_argument("--actor-name")
     create_parser.add_argument(
         "--recurrence",
         action="append",
@@ -51,16 +57,22 @@ def main() -> None:
     view_parser.add_argument("--date")
     view_parser.add_argument("--limit", type=int)
     view_parser.add_argument("--raw-input", default="")
+    view_parser.add_argument("--actor-user-id", type=int)
+    view_parser.add_argument("--actor-name")
 
     search_parser = subparsers.add_parser("search", help="Search events")
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--raw-input", default="")
+    search_parser.add_argument("--actor-user-id", type=int)
+    search_parser.add_argument("--actor-name")
 
     delete_parser = subparsers.add_parser("delete", help="Delete one event")
     delete_parser.add_argument("--calendar", required=True)
     delete_parser.add_argument("--title", required=True)
     delete_parser.add_argument("--date")
     delete_parser.add_argument("--raw-input", default="")
+    delete_parser.add_argument("--actor-user-id", type=int)
+    delete_parser.add_argument("--actor-name")
 
     update_parser = subparsers.add_parser("update", help="Update one event")
     update_parser.add_argument("--calendar", required=True)
@@ -71,11 +83,45 @@ def main() -> None:
     update_parser.add_argument("--start")
     update_parser.add_argument("--end")
     update_parser.add_argument("--raw-input", default="")
+    update_parser.add_argument("--actor-user-id", type=int)
+    update_parser.add_argument("--actor-name")
+
+    gmail_process_parser = subparsers.add_parser("gmail-process", help="Process Gmail inbox candidates")
+    gmail_process_parser.add_argument("--limit", type=int, default=5)
+    gmail_process_parser.add_argument("--query", default="in:inbox")
+    gmail_process_parser.add_argument("--notify", action="store_true")
+    gmail_process_parser.add_argument("--actor-user-id", type=int)
+    gmail_process_parser.add_argument("--actor-name")
+
+    gmail_list_parser = subparsers.add_parser("gmail-list", help="List Gmail candidates")
+    gmail_list_parser.add_argument("--state", default=None)
+    gmail_list_parser.add_argument("--limit", type=int, default=20)
+    gmail_list_parser.add_argument("--actor-user-id", type=int)
+    gmail_list_parser.add_argument("--actor-name")
+
+    gmail_confirm_parser = subparsers.add_parser("gmail-confirm", help="Confirm one Gmail candidate")
+    gmail_confirm_parser.add_argument("--candidate-id", type=int, required=True)
+    gmail_confirm_parser.add_argument("--actor-user-id", type=int)
+    gmail_confirm_parser.add_argument("--actor-name")
+
+    gmail_ignore_parser = subparsers.add_parser("gmail-ignore", help="Ignore one Gmail candidate")
+    gmail_ignore_parser.add_argument("--candidate-id", type=int, required=True)
+    gmail_ignore_parser.add_argument("--actor-user-id", type=int)
+    gmail_ignore_parser.add_argument("--actor-name")
 
     args = parser.parse_args()
 
+    if args.subcommand.startswith("gmail-"):
+        result = _execute_gmail_args(args)
+        print(json.dumps(result, ensure_ascii=False))
+        return
+
     payload = _payload_from_args(args)
-    result = _execute_payload(payload)
+    result = _execute_payload(
+        payload,
+        actor_user_id=getattr(args, "actor_user_id", None),
+        actor_name=getattr(args, "actor_name", None),
+    )
     print(json.dumps(result, ensure_ascii=False))
 
 
@@ -152,15 +198,94 @@ def _payload_from_args(args: argparse.Namespace) -> dict:
     raise SystemExit(f"Unsupported subcommand: {args.subcommand}")
 
 
-def _execute_payload(payload: dict) -> dict:
+def _execute_gmail_args(args: argparse.Namespace) -> dict:
+    config.validate()
+    state_store.init_db()
+
+    if args.subcommand == "gmail-process":
+        service = gmail_client.authenticate()
+        processed = inbox_processor.process_recent_inbox_messages(
+            service,
+            max_results=args.limit,
+            query=args.query,
+        )
+        notification_count = 0
+        if args.notify:
+            bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+            notification_count = len(
+                gmail_confirmation.notify_pending_candidates(bot, limit=args.limit)
+            )
+        return {
+            "success": True,
+            "action": "gmail_process",
+            "message": inbox_processor.format_processing_report(processed),
+            "processed_count": len(processed),
+            "notification_count": notification_count,
+        }
+
+    if args.subcommand == "gmail-list":
+        return {
+            "success": True,
+            "action": "gmail_list",
+            "message": gmail_confirmation.list_candidate_summaries(args.state, limit=args.limit),
+        }
+
+    if args.subcommand == "gmail-confirm":
+        calendar_repo = CalendarRepository.from_config()
+        message = gmail_confirmation.confirm_candidate(
+            args.candidate_id,
+            calendar_repo,
+            actor_user_id=args.actor_user_id,
+        )
+        return {
+            "success": not message.startswith("❌"),
+            "action": "gmail_confirm",
+            "message": message,
+        }
+
+    if args.subcommand == "gmail-ignore":
+        message = gmail_confirmation.ignore_candidate(
+            args.candidate_id,
+            actor_user_id=args.actor_user_id,
+        )
+        return {
+            "success": not message.startswith("❌"),
+            "action": "gmail_ignore",
+            "message": message,
+        }
+
+    raise SystemExit(f"Unsupported Gmail subcommand: {args.subcommand}")
+
+
+def _execute_payload(
+    payload: dict,
+    actor_user_id: int | None = None,
+    actor_name: str | None = None,
+) -> dict:
     config.validate()
     state_store.init_db()
     calendar_repo = CalendarRepository.from_config()
     core = MollyCore(calendar_repo)
     resolution = resolution_from_request(payload)
-    message = core.execute_resolution(resolution)
+    message = core.execute_resolution(resolution, user_id=actor_user_id)
+    success = not message.startswith("❌")
+    if actor_user_id is not None or actor_name:
+        try:
+            import spouse_notifications
+
+            spouse_notifications.notify_spouse_sync(
+                actor_user_id,
+                resolution.intent,
+                success,
+                actor_name=actor_name,
+            )
+        except Exception as exc:
+            print(
+                f"[molly_schedule_action] spouse notification failed: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
     return {
-        "success": not message.startswith("❌"),
+        "success": success,
         "action": resolution.intent.action.value,
         "message": message,
     }
