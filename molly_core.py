@@ -17,6 +17,7 @@ from calendar_repository import (
     format_search_results,
     format_upcoming_events,
 )
+import config
 from intent_models import ExecutionResult, IntentAction, IntentResolution, ResolutionStatus
 import state_store
 import utils
@@ -94,6 +95,10 @@ class MollyCore:
             return message
 
         if intent.action == IntentAction.CREATE_EVENT:
+            all_day = intent.metadata.get(
+                "all_day",
+                intent.time_range is None,
+            )
             command = {
                 "cmd": "add",
                 "calendar": intent.target_calendar,
@@ -103,15 +108,10 @@ class MollyCore:
                 ),
                 "title": intent.title,
                 "date": intent.target_date,
+                "all_day": all_day,
             }
             if intent.date_range is not None:
                 command["end_date"] = intent.date_range.end
-                command["all_day"] = True
-            else:
-                command["all_day"] = intent.metadata.get(
-                    "all_day",
-                    intent.time_range is None,
-                )
             if intent.time_range is not None:
                 command["start"] = intent.time_range.start
                 command["end"] = intent.time_range.end
@@ -133,6 +133,16 @@ class MollyCore:
 
         if intent.action == IntentAction.DELETE_EVENT:
             message = self.calendar_repo.find_and_delete_event(
+                intent.target_calendar,
+                intent.target_date,
+                intent.title,
+            )
+            self._record_result(intent, message, user_id)
+            return message
+
+        if intent.action == IntentAction.MOVE_EVENT:
+            message = self.calendar_repo.move_event(
+                intent.source_calendar,
                 intent.target_calendar,
                 intent.target_date,
                 intent.title,
@@ -162,6 +172,9 @@ class MollyCore:
         raise ValueError(f"Unsupported intent action: {intent.action}")
 
     def _record_result(self, intent, message: str, user_id: int | None) -> None:
+        actor_name = None
+        if user_id is not None and user_id in config.USERS:
+            actor_name = config.USERS[user_id]["name"]
         result = ExecutionResult(
             success=not message.startswith("❌"),
             action=intent.action,
@@ -170,6 +183,8 @@ class MollyCore:
                 "target_calendar": intent.target_calendar,
                 "title": intent.title,
                 "source": intent.source.value,
+                "actor_user_id": user_id,
+                "actor_name": actor_name,
             },
         )
         state_store.record_execution(user_id, result)

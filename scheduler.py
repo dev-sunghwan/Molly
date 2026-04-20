@@ -64,6 +64,26 @@ def _cal_key_for_event(event: dict) -> str:
     )
 
 
+
+
+def _format_reminder_text(event: dict, start_dt: datetime, minutes_away: int) -> str:
+    cal_label = event.get("_calendar_name", "")
+    label = f"[{cal_label}] " if cal_label else ""
+    lines = [
+        f"Reminder — in {minutes_away} min:",
+        f"  {label}{utils.event_display_summary(event)}",
+        f"  {start_dt.strftime('%H:%M')}",
+    ]
+    location = str(event.get("location", "")).strip()
+    if location:
+        lines.append(f"  📍 {location}")
+    notes = str(event.get("notes", "")).strip()
+    if notes:
+        first_line = notes.splitlines()[0].strip()
+        if first_line:
+            lines.append(f"  📝 {first_line}")
+    return "\n".join(lines)
+
 def create_scheduler(calendar_repo: CalendarRepository, bot) -> AsyncIOScheduler:
     """
     Build and return an AsyncIOScheduler with all jobs registered.
@@ -221,13 +241,7 @@ async def _check_reminders(calendar_repo: CalendarRepository, bot) -> None:
                 _reminded.add(occurrence_key)
                 _save_reminded(_reminded)
                 minutes_away = round((start_dt - now).total_seconds() / 60)
-                cal_label = event.get("_calendar_name", "")
-                label = f"[{cal_label}] " if cal_label else ""
-                text = (
-                    f"Reminder — in {minutes_away} min:\n"
-                    f"  {label}{utils.event_display_summary(event)}\n"
-                    f"  {start_dt.strftime('%H:%M')}"
-                )
+                text = _format_reminder_text(event, start_dt, minutes_away)
                 log.info(
                     "[Scheduler] Sending reminder for '%s' at %s",
                     event.get("summary"), start_dt.strftime("%H:%M"),

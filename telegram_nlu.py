@@ -17,15 +17,6 @@ import utils
 from intent_models import IntentAction, IntentResolution, IntentSource, ResolutionStatus, ScheduleIntent, TimeRange
 
 
-_CALENDAR_ALIASES = {
-    "sunghwan": ["sunghwan", "sung hwan", "성환"],
-    "jeeyoung": ["jeeyoung", "jee young", "지영"],
-    "younha": ["younha", "youn ha", "윤하"],
-    "haneul": ["haneul", "ha neul", "하늘"],
-    "younho": ["younho", "youn ho", "윤호"],
-    "family": ["family", "가족", "우리 가족"],
-}
-
 
 def parse_free_text_to_intent(
     text: str,
@@ -273,7 +264,7 @@ def _looks_like_create_request(text: str, lowered: str) -> bool:
 
 
 def _extract_calendar_alias(lowered: str) -> str | None:
-    for calendar, aliases in _CALENDAR_ALIASES.items():
+    for calendar, aliases in config.CALENDAR_ALIASES.items():
         if any(alias in lowered for alias in aliases):
             return calendar
     for calendar in config.CALENDARS:
@@ -283,12 +274,7 @@ def _extract_calendar_alias(lowered: str) -> str | None:
 
 
 def _normalize_calendar(value: str | None) -> str | None:
-    if not value:
-        return None
-    lowered = value.strip().lower()
-    if lowered in config.CALENDARS:
-        return lowered
-    return _extract_calendar_alias(lowered)
+    return config.normalize_calendar_name(value)
 
 
 def _extract_relative_date(text: str, lowered: str):
@@ -423,7 +409,7 @@ def _extract_title(text: str, lowered: str, calendar: str | None) -> str | None:
         title = re.sub(re.escape(phrase), " ", title, flags=re.IGNORECASE)
 
     if calendar is not None:
-        for alias in _CALENDAR_ALIASES.get(calendar, []):
+        for alias in config.CALENDAR_ALIASES.get(calendar, []):
             title = re.sub(re.escape(alias), " ", title, flags=re.IGNORECASE)
 
     title = re.sub(r"\b\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?\b", " ", title)

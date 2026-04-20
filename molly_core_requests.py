@@ -33,6 +33,8 @@ def resolution_from_request(payload: dict) -> IntentResolution:
         return _search_resolution(payload)
     if action == "delete_event":
         return _delete_event_resolution(payload)
+    if action == "move_event":
+        return _move_event_resolution(payload)
     if action == "update_event":
         return _update_event_resolution(payload)
     raise ValueError(
@@ -152,6 +154,20 @@ def _delete_event_resolution(payload: dict) -> IntentResolution:
     return IntentResolution(status=ResolutionStatus.READY, intent=intent)
 
 
+
+
+def _move_event_resolution(payload: dict) -> IntentResolution:
+    intent = ScheduleIntent(
+        action=IntentAction.MOVE_EVENT,
+        source=IntentSource.TELEGRAM_FREE_TEXT,
+        raw_input=str(payload.get("raw_input", "")),
+        source_calendar=_normalize_calendar(payload.get("source_calendar")),
+        target_calendar=_normalize_calendar(payload.get("target_calendar")),
+        title=_required_string(payload.get("title"), "title"),
+        target_date=_optional_date(payload.get("target_date")),
+    )
+    return IntentResolution(status=ResolutionStatus.READY, intent=intent)
+
 def _update_event_resolution(payload: dict) -> IntentResolution:
     changes_payload = payload.get("changes")
     if not isinstance(changes_payload, dict):
@@ -185,16 +201,21 @@ def _update_event_resolution(payload: dict) -> IntentResolution:
 
 
 def _normalize_calendar(value) -> str:
-    calendar = _required_string(value, "target_calendar").lower()
-    if calendar not in config.CALENDARS:
-        raise ValueError(f"Unknown target_calendar: {calendar}")
+    raw = _required_string(value, "target_calendar")
+    calendar = config.normalize_calendar_name(raw)
+    if calendar is None:
+        raise ValueError(f"Unknown target_calendar: {raw}")
     return calendar
 
 
 def _optional_calendar(value) -> str | None:
     if value is None or str(value).strip() == "":
         return None
-    return _normalize_calendar(value)
+    raw = str(value).strip()
+    calendar = config.normalize_calendar_name(raw)
+    if calendar is None:
+        raise ValueError(f"Unknown target_calendar: {raw}")
+    return calendar
 
 
 def _required_string(value, field_name: str) -> str:

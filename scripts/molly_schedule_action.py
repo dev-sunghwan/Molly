@@ -74,6 +74,15 @@ def main() -> None:
     delete_parser.add_argument("--actor-user-id", type=int)
     delete_parser.add_argument("--actor-name")
 
+    move_parser = subparsers.add_parser("move", help="Move one event between calendars")
+    move_parser.add_argument("--from-calendar", required=True)
+    move_parser.add_argument("--to-calendar", required=True)
+    move_parser.add_argument("--title", required=True)
+    move_parser.add_argument("--date")
+    move_parser.add_argument("--raw-input", default="")
+    move_parser.add_argument("--actor-user-id", type=int)
+    move_parser.add_argument("--actor-name")
+
     update_parser = subparsers.add_parser("update", help="Update one event")
     update_parser.add_argument("--calendar", required=True)
     update_parser.add_argument("--title", required=True)
@@ -170,6 +179,17 @@ def _payload_from_args(args: argparse.Namespace) -> dict:
         payload = {
             "action": "delete_event",
             "target_calendar": args.calendar,
+            "title": args.title,
+            "raw_input": args.raw_input,
+        }
+        if args.date:
+            payload["target_date"] = args.date
+        return payload
+    if args.subcommand == "move":
+        payload = {
+            "action": "move_event",
+            "source_calendar": args.from_calendar,
+            "target_calendar": args.to_calendar,
             "title": args.title,
             "raw_input": args.raw_input,
         }

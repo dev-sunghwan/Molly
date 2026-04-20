@@ -255,6 +255,47 @@ def find_and_edit_event(
     )
 
 
+
+
+def move_event(
+    service: LocalCalendarService,
+    source_cal_key: str,
+    target_cal_key: str,
+    target_date: date | None,
+    title: str,
+) -> str:
+    matches = _expanded_matches(source_cal_key, title, target_date)
+    source_display = config.CALENDAR_DISPLAY_NAMES.get(source_cal_key, source_cal_key)
+    target_display = config.CALENDAR_DISPLAY_NAMES.get(target_cal_key, target_cal_key)
+    search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
+
+    if not matches:
+        return f"❌ No event '{title}' found in {source_display} {search_desc}"
+    if len(matches) > 1:
+        return _multiple_matches_message(source_cal_key, title, matches, action="moved")
+
+    match = matches[0]
+    row = match["_source_row"]
+    with _connect() as conn:
+        conn.execute("UPDATE local_events SET calendar_key = ? WHERE id = ?", (target_cal_key, row["id"]))
+
+    start = match.get("start", {})
+    if "dateTime" in start:
+        dt = datetime.fromisoformat(start["dateTime"]).astimezone(utils.TZ)
+        end = match.get("end", {})
+        dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(utils.TZ)
+        date_disp = utils.format_short_day_date(dt.date())
+        time_disp = f"{dt.strftime('%H:%M')}–{dt_end.strftime('%H:%M')}"
+    else:
+        date_disp = utils.format_short_day_date(date.fromisoformat(start.get("date", row["start_date"])))
+        time_disp = "All day"
+
+    return (
+        f"✅ Moved from {source_display} to {target_display}:\n"
+        f"  {title}\n"
+        f"  {date_disp}  {time_disp}"
+    )
+
 def find_and_delete_event(
     service: LocalCalendarService,
     cal_key: str,

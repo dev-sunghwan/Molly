@@ -161,3 +161,37 @@ def test_resolution_from_request_defaults_missing_end_time_for_one_off_timed_eve
     assert resolution.intent.time_range is not None
     assert resolution.intent.time_range.start == "17:00"
     assert resolution.intent.time_range.end == "18:00"
+
+
+def test_resolution_from_request_accepts_calendar_aliases_for_create():
+    resolution = resolution_from_request(
+        {
+            "action": "create_event",
+            "target_calendar": "윤하",
+            "title": "Tennis",
+            "target_date": "2026-04-16",
+            "start_time": "17:00",
+            "end_time": "18:00",
+            "all_day": False,
+        }
+    )
+
+    assert resolution.intent.target_calendar == "younha"
+
+
+def test_resolution_from_request_builds_move_event_intent():
+    resolution = resolution_from_request(
+        {
+            "action": "move_event",
+            "source_calendar": "family",
+            "target_calendar": "윤하",
+            "title": "Sutton mock test",
+            "target_date": "2026-05-17",
+        }
+    )
+
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.MOVE_EVENT
+    assert resolution.intent.source_calendar == "family"
+    assert resolution.intent.target_calendar == "younha"
+    assert resolution.intent.target_date.isoformat() == "2026-05-17"

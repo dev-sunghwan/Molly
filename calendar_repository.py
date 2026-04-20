@@ -57,6 +57,15 @@ class CalendarRepository:
             title,
         )
 
+    def move_event(self, source_cal_key: str, target_cal_key: str, target_date: date | None, title: str) -> str:
+        return self.backend_module.move_event(
+            self.service,
+            source_cal_key,
+            target_cal_key,
+            target_date,
+            title,
+        )
+
     def delete_recurring_series(self, cal_key: str, title: str) -> str:
         return self.backend_module.delete_recurring_series(self.service, cal_key, title)
 
@@ -85,21 +94,27 @@ def format_search_results(events: list[dict], keyword: str) -> str:
         return f"No upcoming events matching '{keyword}'."
 
     tz = utils.TZ
-    lines = [f"<b>Search: '{keyword}'</b>"]
+    lines = [f"Search: '{keyword}'"]
     for event in events:
         start = event.get("start", {})
-        cal_label = event.get("_calendar_name", "")
-        summary = event.get("summary", "(no title)")
+        cal_label = utils.format_calendar_label(event)
+        summary = utils.event_display_summary(event)
         if "dateTime" in start:
             dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
-            date_str = dt.strftime("%d-%m-%Y")
+            date_str = utils.format_short_day_date(dt.date())
             time_str = dt.strftime("%H:%M")
             end = event.get("end", {})
             if "dateTime" in end:
                 dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(tz)
-                time_str += f"–{dt_end.strftime('%H:%M')}"
+                if dt_end.date() != dt.date():
+                    time_str = (
+                        f"{dt.strftime('%H:%M')} – "
+                        f"{utils.format_short_day_date(dt_end.date())} {dt_end.strftime('%H:%M')}"
+                    )
+                else:
+                    time_str += f"–{dt_end.strftime('%H:%M')}"
         else:
-            date_str = start.get("date", "?")
+            date_str = utils.format_short_day_date(date.fromisoformat(start.get("date", "?")))
             time_str = "All day"
         lines.append(f"  • {date_str}  {time_str}  [{cal_label}] {summary}")
 
@@ -114,7 +129,7 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
 
     tz = utils.TZ
     label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "All calendars"
-    lines = [f"<b>Upcoming ({label}, next {limit}):</b>"]
+    lines = [f"Upcoming ({label}, next {limit}):"]
     by_date: dict = {}
 
     for event in events:
@@ -126,11 +141,11 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
         by_date.setdefault(day, []).append(event)
 
     for day, day_events in by_date.items():
-        lines.append(f"\n<b>{day.strftime('%a %d-%m-%Y')}</b>")
+        lines.append(f"\n{utils.format_short_day_date(day)}")
         for event in day_events:
             start = event.get("start", {})
-            cal_name = event.get("_calendar_name", "")
-            summary = event.get("summary", "(no title)")
+            cal_name = utils.format_calendar_label(event)
+            summary = utils.event_display_summary(event)
             if "dateTime" in start:
                 dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
                 time_str = dt.strftime("%H:%M")
@@ -140,7 +155,7 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
                     time_str += f"–{dt_end.strftime('%H:%M')}"
             else:
                 time_str = "All day"
-            cal_part = f"[{cal_name}] " if not cal_key else ""
+            cal_part = f"[{cal_name}] " if cal_name else ""
             lines.append(f"  • {time_str}  {cal_part}{summary}")
 
     return "\n".join(lines)
@@ -154,21 +169,27 @@ def format_next_events(events: list[dict], cal_key: str | None) -> str:
 
     tz = utils.TZ
     label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "all calendars"
-    lines = [f"<b>Next event ({label}):</b>"]
+    lines = [f"Next event ({label}):"]
     for event in events:
         start = event.get("start", {})
-        cal_name = event.get("_calendar_name", "")
-        summary = event.get("summary", "(no title)")
+        cal_name = utils.format_calendar_label(event)
+        summary = utils.event_display_summary(event)
         if "dateTime" in start:
             dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
-            date_str = dt.strftime("%d-%m-%Y")
+            date_str = utils.format_short_day_date(dt.date())
             time_str = dt.strftime("%H:%M")
             end = event.get("end", {})
             if "dateTime" in end:
                 dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(tz)
-                time_str += f"–{dt_end.strftime('%H:%M')}"
+                if dt_end.date() != dt.date():
+                    time_str = (
+                        f"{dt.strftime('%H:%M')} – "
+                        f"{utils.format_short_day_date(dt_end.date())} {dt_end.strftime('%H:%M')}"
+                    )
+                else:
+                    time_str += f"–{dt_end.strftime('%H:%M')}"
         else:
-            date_str = start.get("date", "?")
+            date_str = utils.format_short_day_date(date.fromisoformat(start.get("date", "?")))
             time_str = "All day"
         lines.append(f"  • {date_str}  {time_str}  [{cal_name}] {summary}")
 

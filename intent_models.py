@@ -18,6 +18,7 @@ class IntentAction(str, Enum):
     CREATE_EVENT = "create_event"
     UPDATE_EVENT = "update_event"
     DELETE_EVENT = "delete_event"
+    MOVE_EVENT = "move_event"
     DELETE_SERIES = "delete_series"
     SEARCH = "search"
     HELP = "help"
@@ -53,6 +54,7 @@ class ScheduleIntent:
     source: IntentSource
     raw_input: str = ""
     target_calendar: str | None = None
+    source_calendar: str | None = None
     title: str | None = None
     target_date: date | None = None
     date_range: DateRange | None = None

@@ -96,8 +96,8 @@ def add_event(service, cmd: dict) -> str:
             end_date_exclusive = cmd["end_date"] + timedelta(days=1)
             end_date_str = end_date_exclusive.strftime("%Y-%m-%d")
             reply_time_str = (
-                f"All day  ({cmd['date'].strftime('%d-%m-%Y')} – "
-                f"{cmd['end_date'].strftime('%d-%m-%Y')})"
+                f"All day  ({utils.format_short_day_date(cmd['date'])} – "
+                f"{utils.format_short_day_date(cmd['end_date'])})"
             )
         else:
             end_date_str = start_date_str
@@ -109,20 +109,26 @@ def add_event(service, cmd: dict) -> str:
         }
     else:
         start_dt = utils.make_datetime(cmd["date"], cmd["start"])
-        end_dt = utils.make_datetime(cmd["date"], cmd["end"])
+        end_dt = utils.make_datetime(cmd.get("end_date", cmd["date"]), cmd["end"])
         event_body = {
             "summary": cmd["title"],
             "start": {"dateTime": start_dt.isoformat(), "timeZone": config.TIMEZONE},
             "end": {"dateTime": end_dt.isoformat(), "timeZone": config.TIMEZONE},
         }
-        reply_time_str = f"{cmd['start']}–{cmd['end']}"
+        if cmd.get("end_date") and cmd["end_date"] != cmd["date"]:
+            reply_time_str = (
+                f"{utils.format_short_day_date(cmd['date'])} {cmd['start']} – "
+                f"{utils.format_short_day_date(cmd['end_date'])} {cmd['end']}"
+            )
+        else:
+            reply_time_str = f"{cmd['start']}–{cmd['end']}"
 
     if "recurrence" in cmd:
         event_body["recurrence"] = cmd["recurrence"]
 
     try:
         service.events().insert(calendarId=cal_id, body=event_body).execute()
-        date_str_display = cmd["date"].strftime("%d-%m-%Y")
+        date_str_display = utils.format_short_day_date(cmd["date"])
         recurring_label = "  (weekly recurring)" if "recurrence" in cmd else ""
         reply = (
             f"✅ Added to {cal_display}:\n"
@@ -325,10 +331,88 @@ def find_and_edit_event(service, cal_key: str, target_date: date | None, title: 
         else:
             time_disp = "All day"
 
+        if isinstance(date_disp, str):
+            try:
+                date_obj = datetime.strptime(date_disp, "%d-%m-%Y").date()
+                date_disp = utils.format_short_day_date(date_obj)
+            except ValueError:
+                pass
         return f"✅ Updated in {cal_display}:\n  {new_title}\n  {date_disp}  {time_disp}"
     except HttpError as e:
         return f"❌ Failed to edit event: {e}"
 
+
+
+
+def move_event(service, source_cal_key: str, target_cal_key: str, target_date: date | None, title: str) -> str:
+    """Move one event between calendars while preserving title/date/time."""
+    source_cal_id = config.CALENDARS[source_cal_key]
+    source_display = config.CALENDAR_DISPLAY_NAMES.get(source_cal_key, source_cal_key)
+    target_display = config.CALENDAR_DISPLAY_NAMES.get(target_cal_key, target_cal_key)
+    tz = utils.TZ
+
+    if target_date is not None:
+        time_min = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)).isoformat()
+        time_max = tz.localize(datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)).isoformat()
+        search_desc = f"on {target_date.strftime('%d-%m-%Y')}"
+    else:
+        today = utils._today_local()
+        end = today + timedelta(days=90)
+        time_min = tz.localize(datetime(today.year, today.month, today.day, 0, 0, 0)).isoformat()
+        time_max = tz.localize(datetime(end.year, end.month, end.day, 23, 59, 59)).isoformat()
+        search_desc = "in the next 90 days"
+
+    try:
+        result = (
+            service.events()
+            .list(
+                calendarId=source_cal_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events = result.get("items", [])
+        matches = [event for event in events if event.get("summary", "").lower() == title.lower()]
+
+        if not matches:
+            return f"❌ No event '{title}' found in {source_display} {search_desc}"
+
+        if len(matches) > 1:
+            lines = [f"❌ Multiple events named '{title}' in {source_display}. Nothing moved. Specify a date:\n"]
+            for event in matches:
+                start = event.get("start", {})
+                if "dateTime" in start:
+                    dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+                    lines.append(f"  • {dt.strftime('%d-%m-%Y')}  {dt.strftime('%H:%M')}  {event.get('summary')}")
+                else:
+                    lines.append(f"  • {start.get('date', '?')}  All day  {event.get('summary')}")
+            return "\n".join(lines)
+
+        event = matches[0]
+        new_body = {k: v for k, v in event.items() if k not in {"id", "etag", "htmlLink", "created", "updated", "iCalUID", "sequence", "organizer"}}
+        created = service.events().insert(calendarId=config.CALENDARS[target_cal_key], body=new_body).execute()
+        service.events().delete(calendarId=source_cal_id, eventId=event["id"]).execute()
+
+        start = created.get("start", {})
+        if "dateTime" in start:
+            dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+            end = created.get("end", {})
+            if "dateTime" in end:
+                dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(tz)
+                time_disp = f"{dt.strftime('%H:%M')}–{dt_end.strftime('%H:%M')}"
+            else:
+                time_disp = dt.strftime('%H:%M')
+            date_disp = utils.format_short_day_date(dt.date())
+        else:
+            date_disp = utils.format_short_day_date(date.fromisoformat(start.get("date", "1970-01-01")))
+            time_disp = "All day"
+
+        return f"✅ Moved from {source_display} to {target_display}:\n  {title}\n  {date_disp}  {time_disp}"
+    except HttpError as e:
+        return f"❌ Failed to move event: {e}"
 
 def find_and_delete_event(service, cal_key: str, target_date: date | None, title: str) -> str:
     """Find an event by title in a specific calendar and delete it."""

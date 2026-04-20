@@ -21,8 +21,15 @@ TELEGRAM_EXTRACTOR_BACKEND: str = os.getenv(
 ).strip().lower()
 OPENCLAW_API_URL: str = os.getenv("OPENCLAW_API_URL", "").strip()
 OPENCLAW_MODEL: str = os.getenv("OPENCLAW_MODEL", "").strip()
+OPENCLAW_TELEGRAM_MODEL: str = os.getenv("OPENCLAW_TELEGRAM_MODEL", OPENCLAW_MODEL).strip()
+OPENCLAW_DEV_MODEL: str = os.getenv("OPENCLAW_DEV_MODEL", OPENCLAW_MODEL).strip()
 OPENCLAW_API_KEY: str = os.getenv("OPENCLAW_API_KEY", "").strip()
 OPENCLAW_TIMEOUT_SECONDS: int = int(os.getenv("OPENCLAW_TIMEOUT_SECONDS", "20"))
+GMAIL_ALLOWED_SENDERS: set[str] = {
+    value.strip().lower()
+    for value in os.getenv("GMAIL_ALLOWED_SENDERS", "").split(",")
+    if value.strip()
+}
 
 # ── Load config.json ──────────────────────────────────────────────────────────
 _config_path = ROOT / "config.json"
@@ -48,6 +55,10 @@ USERS: dict[int, dict] = {
     }
     for uid, udata in _users_raw.items()
 }
+USER_IDS_BY_NAME: dict[str, int] = {
+    udata["name"].strip().lower(): user_id
+    for user_id, udata in USERS.items()
+}
 
 # Set of Telegram user IDs that are allowed to use the bot
 # Derived from users block; falls back to legacy allowed_user_ids if users is absent.
@@ -64,6 +75,30 @@ SCHEDULER_REMINDER_MINUTES: int      = int(_sched.get("reminder_minutes_before",
 
 # ── Derived helpers ───────────────────────────────────────────────────────────
 VALID_CALENDAR_NAMES: list[str] = list(_cfg["calendars"].keys())  # original casing
+
+
+CALENDAR_ALIASES: dict[str, list[str]] = {
+    "sunghwan": ["sunghwan", "sung hwan", "성환"],
+    "jeeyoung": ["jeeyoung", "jee young", "지영"],
+    "younha": ["younha", "youn ha", "윤하"],
+    "haneul": ["haneul", "ha neul", "하늘"],
+    "younho": ["younho", "youn ho", "윤호"],
+    "family": ["family", "가족", "우리 가족"],
+}
+
+
+def normalize_calendar_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    lowered = str(value).strip().lower()
+    if not lowered:
+        return None
+    if lowered in CALENDARS:
+        return lowered
+    for canonical, aliases in CALENDAR_ALIASES.items():
+        if lowered == canonical or lowered in aliases:
+            return canonical
+    return None
 
 CREDENTIALS_PATH: Path = ROOT / "credentials.json"
 TOKEN_PATH: Path = ROOT / "token.json"
@@ -96,8 +131,10 @@ def validate():
     if TELEGRAM_EXTRACTOR_BACKEND == "openclaw":
         if not OPENCLAW_API_URL:
             errors.append("OPENCLAW_API_URL is required when using the openclaw Telegram extractor")
-        if not OPENCLAW_MODEL:
-            errors.append("OPENCLAW_MODEL is required when using the openclaw Telegram extractor")
+        if not OPENCLAW_TELEGRAM_MODEL:
+            errors.append(
+                "OPENCLAW_TELEGRAM_MODEL or OPENCLAW_MODEL is required when using the openclaw Telegram extractor"
+            )
     if errors:
         msg = "\n".join(f"  ❌ {e}" for e in errors)
         raise SystemExit(f"[Molly] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")
