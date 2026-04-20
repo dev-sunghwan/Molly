@@ -1,3 +1,4 @@
+from telegram_extraction import build_extraction_prompt
 from openclaw_telegram_provider import (
     _draft_from_payload,
     _extract_json_payload,
@@ -76,3 +77,10 @@ def test_extract_draft_via_openclaw_returns_draft_on_valid_payload():
     assert draft.action == "create_event"
     assert draft.target_calendar == "윤하"
     assert draft.title == "테니스"
+
+
+def test_build_extraction_prompt_mentions_all_calendar_default_for_upcoming():
+    prompt = build_extraction_prompt("Show me upcoming")
+
+    assert "leave target_calendar empty" in prompt
+    assert "all-calendars default" in prompt

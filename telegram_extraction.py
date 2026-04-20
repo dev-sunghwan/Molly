@@ -34,6 +34,8 @@ def build_extraction_prompt(message_text: str) -> str:
         "If create_event, extract title, family member/calendar, date text, "
         "time text, and any missing fields.\n"
         "If view_daily or view_range, extract the relevant date/range intent.\n"
+        "Do not guess a calendar when the user did not name one explicitly.\n"
+        "For requests like 'upcoming' or 'next' without a calendar, leave target_calendar empty so Molly Core can use its all-calendars default.\n"
         "Do not execute anything.\n\n"
         f"Telegram message:\n{message_text}\n"
     )
