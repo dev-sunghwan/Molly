@@ -52,6 +52,16 @@ def test_add_ddmmyyyy_date():
     assert result["cmd"] == "add"
     assert result["date"] == date(2026, 4, 15)
 
+def test_add_timed_multi_day():
+    result = commands.parse("add YounHa Cub Indoor Camp 17-04-2026 18:45 to 19-04-2026 16:00")
+    assert result["cmd"] == "add"
+    assert result["title"] == "Cub Indoor Camp"
+    assert result["date"] == date(2026, 4, 17)
+    assert result["end_date"] == date(2026, 4, 19)
+    assert result["start"] == "18:45"
+    assert result["end"] == "16:00"
+    assert result["all_day"] is False
+
 def test_add_day_name():
     result = commands.parse("add HaNeul swimming Sat 08:00-09:00")
     assert result["cmd"] == "add"

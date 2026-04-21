@@ -208,10 +208,13 @@ def format_calendar_label(event: dict) -> str:
 
 
 def event_display_summary(event: dict) -> str:
+    summary = event.get("summary")
+    if summary:
+        return str(summary)
     override = event.get("_display_summary")
     if override:
         return str(override)
-    return str(event.get("summary", "(no title)"))
+    return "(no title)"
 
 
     cal_name = (event.get("_calendar_name") or "").strip()
@@ -225,7 +228,7 @@ def event_display_summary(event: dict) -> str:
 def format_event(event: dict, show_cal_label: bool = True) -> str:
     """Format a single Google Calendar event dict into a reply line."""
     start = event.get("start", {})
-    summary = event.get("summary", "(no title)")
+    summary = event_display_summary(event)
     cal_label = format_calendar_label(event)
 
     # All-day event

@@ -21,6 +21,7 @@ from intent_adapter import parse_text_to_intent
 from intent_models import ResolutionStatus
 from molly_core import MollyCore
 import scheduler as sched_module
+import spouse_notifications
 import state_store
 import telegram_extractor_provider
 import telegram_nlu
@@ -78,6 +79,12 @@ async def handle_message(update: Update, context) -> None:
                 return
             reply = core.execute_resolution(pending_resolution, user_id=user.id)
             await update.message.reply_text(reply, parse_mode="HTML")
+            await spouse_notifications.notify_spouse_via_bot(
+                context.application.bot,
+                user.id,
+                pending_resolution.intent,
+                success=not reply.startswith("❌"),
+            )
             return
 
         resolution = parse_text_to_intent(text, commands.parse)
@@ -103,6 +110,12 @@ async def handle_message(update: Update, context) -> None:
 
         reply = core.execute_resolution(resolution, user_id=user.id)
         await update.message.reply_text(reply, parse_mode="HTML")
+        await spouse_notifications.notify_spouse_via_bot(
+            context.application.bot,
+            user.id,
+            resolution.intent,
+            success=not reply.startswith("❌"),
+        )
 
     except Exception as e:
         log.exception("Unhandled error while processing message text=%s", text)

@@ -44,3 +44,4 @@ def test_molly_core_executes_create_event(monkeypatch, tmp_path):
     assert any(event["summary"] == "Tennis" for event in events)
     assert log_rows[0]["user_id"] == 123
     assert log_rows[0]["action"] == "create_event"
+    assert log_rows[0]["metadata"]["actor_user_id"] == 123

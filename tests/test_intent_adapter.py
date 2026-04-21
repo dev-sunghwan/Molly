@@ -38,6 +38,23 @@ def test_multiday_add_maps_to_date_range():
     assert resolution.intent.metadata["all_day"] is True
 
 
+def test_timed_multiday_add_maps_to_date_range_and_time_range():
+    resolution = parse_text_to_intent(
+        "add YounHa Cub Indoor Camp 17-04-2026 18:45 to 19-04-2026 16:00",
+        commands.parse,
+    )
+
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.CREATE_EVENT
+    assert resolution.intent.date_range is not None
+    assert resolution.intent.date_range.start == date(2026, 4, 17)
+    assert resolution.intent.date_range.end == date(2026, 4, 19)
+    assert resolution.intent.time_range is not None
+    assert resolution.intent.time_range.start == "18:45"
+    assert resolution.intent.time_range.end == "16:00"
+    assert resolution.intent.metadata["all_day"] is False
+
+
 def test_edit_command_maps_to_update_intent():
     resolution = parse_text_to_intent(
         "edit SungHwan dentist time 15:00-16:00",

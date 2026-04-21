@@ -296,6 +296,40 @@ def _parse_add(text: str) -> dict:
     # ── Detect multi-day: "to" keyword between two dates ─────────────────────
     if "to" in lower_tokens:
         to_idx = lower_tokens.index("to")
+        if 1 < to_idx < len(tokens) - 2:
+            start_date = utils.parse_date(tokens[to_idx - 2].lower())
+            start_time = utils.parse_clock_time(tokens[to_idx - 1])
+            end_date = utils.parse_date(tokens[to_idx + 1].lower())
+            end_time = utils.parse_clock_time(tokens[to_idx + 2])
+            if (
+                start_date is not None
+                and start_time is not None
+                and end_date is not None
+                and end_time is not None
+            ):
+                title_tokens = tokens[1:to_idx - 2]
+                title = " ".join(title_tokens).strip()
+                if not title:
+                    return {
+                        "error": (
+                            "❌ Event title cannot be empty.\n"
+                            "Example: add YounHa Cub Indoor Camp 17-04-2026 18:45 to 19-04-2026 16:00"
+                        )
+                    }
+                if end_date < start_date:
+                    return {"error": "❌ End date cannot be before start date."}
+                return {
+                    "cmd": "add",
+                    "calendar": cal_key,
+                    "calendar_display": cal_token,
+                    "title": title,
+                    "date": start_date,
+                    "end_date": end_date,
+                    "start": start_time,
+                    "end": end_time,
+                    "all_day": False,
+                }
+
         # "to" must not be first or last, and neighbours must be dates
         if 0 < to_idx < len(tokens) - 1:
             start_date = utils.parse_date(tokens[to_idx - 1].lower())

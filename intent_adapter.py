@@ -242,6 +242,30 @@ def _infer_add_without_calendar(text: str) -> IntentResolution | None:
 
     if "to" in lower_tokens:
         to_idx = lower_tokens.index("to")
+        if 1 < to_idx < len(tokens) - 2:
+            start_date = utils.parse_date(tokens[to_idx - 2].lower())
+            start_time = utils.parse_clock_time(tokens[to_idx - 1])
+            end_date = utils.parse_date(tokens[to_idx + 1].lower())
+            end_time = utils.parse_clock_time(tokens[to_idx + 2])
+            if (
+                start_date is not None
+                and start_time is not None
+                and end_date is not None
+                and end_time is not None
+            ):
+                title = " ".join(tokens[: to_idx - 2]).strip()
+                intent = ScheduleIntent(
+                    action=IntentAction.CREATE_EVENT,
+                    source=IntentSource.TELEGRAM_FREE_TEXT,
+                    raw_input=text,
+                    title=title or None,
+                    target_date=start_date,
+                    date_range=DateRange(start=start_date, end=end_date),
+                    time_range=TimeRange(start=start_time, end=end_time),
+                    metadata={"all_day": False, "inferred_missing_calendar": True},
+                )
+                return validate_intent(intent)
+
         if 0 < to_idx < len(tokens) - 1:
             start_date = utils.parse_date(tokens[to_idx - 1].lower())
             end_date = utils.parse_date(tokens[to_idx + 1].lower())

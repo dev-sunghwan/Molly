@@ -81,9 +81,60 @@ def test_time_invalid():
 def test_format_date_header():
     d = date(2026, 4, 8)
     header = utils.format_date_header(d)
-    assert "08-04-2026" in header
+    assert "08-04" in header
+    assert "2026" not in header
     assert "Wednesday" in header
     assert "📅" in header
+    assert "<b>" not in header
+
+
+def test_event_display_summary_prefers_current_summary_over_display_override():
+    event = {
+        "summary": "Cubs @ Green Lane Primary School",
+        "_display_summary": "Cubs",
+    }
+
+    assert utils.event_display_summary(event) == "Cubs @ Green Lane Primary School"
+
+
+def test_format_event_uses_korean_calendar_label():
+    event = {
+        "summary": "Alpha-Math",
+        "_calendar_name": "YounHa",
+        "start": {"dateTime": "2026-04-17T17:00:00+01:00"},
+        "end": {"dateTime": "2026-04-17T18:00:00+01:00"},
+    }
+
+    line = utils.format_event(event)
+
+    assert "[윤하]" in line
+    assert "Alpha-Math" in line
+
+
+def test_format_event_list_shows_calendar_label_per_line():
+    d = date(2026, 4, 17)
+    events = [
+        {
+            "summary": "swimming",
+            "_calendar_name": "HaNeul",
+            "start": {"dateTime": "2026-04-17T18:00:00+01:00"},
+            "end": {"dateTime": "2026-04-17T18:30:00+01:00"},
+        },
+        {
+            "summary": "Alpha-Math",
+            "_calendar_name": "YounHa",
+            "start": {"dateTime": "2026-04-17T17:00:00+01:00"},
+            "end": {"dateTime": "2026-04-17T18:00:00+01:00"},
+        },
+    ]
+
+    message = utils.format_event_list(events, d)
+
+    assert "[하늘]" in message
+    assert "[윤하]" in message
+    assert "<b>HaNeul</b>" not in message
+    assert "<b>YounHa</b>" not in message
+    assert "<b>" not in message
 
 
 # ── Self-running ──────────────────────────────────────────────────────────────
@@ -94,6 +145,8 @@ if __name__ == "__main__":
         test_day_name_future, test_day_name_case_insensitive,
         test_time_range, test_time_single_adds_one_hour,
         test_time_midnight_rollover, test_time_invalid, test_format_date_header,
+        test_format_event_uses_korean_calendar_label,
+        test_format_event_list_shows_calendar_label_per_line,
     ]
     passed = failed = 0
     for t in tests:
