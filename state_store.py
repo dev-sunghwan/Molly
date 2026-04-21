@@ -59,6 +59,23 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                decision_status TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                summary TEXT,
+                candidate_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL,
+                notified INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         conn.commit()
 
 
@@ -184,9 +201,184 @@ def is_processed_input(source: str, external_id: str) -> bool:
     return get_processed_input(source, external_id) is not None
 
 
+def save_email_candidate(
+    message_id: str,
+    status: str,
+    reason: str,
+    summary: str | None,
+    candidate_payload: dict,
+    metadata: dict | None = None,
+) -> int:
+    existing = get_email_candidate_by_message_id(message_id)
+    decision_status = _candidate_decision_status(status)
+    candidate_json = json.dumps(candidate_payload, ensure_ascii=True, sort_keys=True)
+    metadata_json = json.dumps(metadata or {}, ensure_ascii=True, sort_keys=True)
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO email_candidates (
+                message_id, status, decision_status, reason, summary, candidate_json, metadata_json, notified
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
+            ON CONFLICT(message_id) DO UPDATE SET
+                status = excluded.status,
+                decision_status = excluded.decision_status,
+                reason = excluded.reason,
+                summary = excluded.summary,
+                candidate_json = excluded.candidate_json,
+                metadata_json = excluded.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                message_id,
+                status,
+                decision_status,
+                reason,
+                summary,
+                candidate_json,
+                metadata_json,
+                1 if existing and existing.get("notified") else 0,
+            ),
+        )
+        conn.commit()
+
+    stored = get_email_candidate_by_message_id(message_id)
+    if stored is None:
+        raise RuntimeError(f"Failed to save email candidate for message_id={message_id}")
+    return int(stored["id"])
+
+
+def get_email_candidate(candidate_id: int) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, message_id, status, decision_status, reason, summary,
+                   candidate_json, metadata_json, notified, created_at, updated_at
+            FROM email_candidates
+            WHERE id = ?
+            """,
+            (candidate_id,),
+        ).fetchone()
+    return _row_to_email_candidate(row)
+
+
+def get_email_candidate_by_message_id(message_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, message_id, status, decision_status, reason, summary,
+                   candidate_json, metadata_json, notified, created_at, updated_at
+            FROM email_candidates
+            WHERE message_id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+    return _row_to_email_candidate(row)
+
+
+def list_email_candidates(
+    decision_status: str | None = None,
+    notified: bool | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    query = [
+        """
+        SELECT id, message_id, status, decision_status, reason, summary,
+               candidate_json, metadata_json, notified, created_at, updated_at
+        FROM email_candidates
+        """
+    ]
+    params: list[object] = []
+    where: list[str] = []
+    if decision_status is not None:
+        where.append("decision_status = ?")
+        params.append(decision_status)
+    if notified is not None:
+        where.append("notified = ?")
+        params.append(1 if notified else 0)
+    if where:
+        query.append("WHERE " + " AND ".join(where))
+    query.append("ORDER BY id DESC LIMIT ?")
+    params.append(limit)
+    with _connect() as conn:
+        rows = conn.execute("\n".join(query), tuple(params)).fetchall()
+    return [_row_to_email_candidate(row) for row in rows if row is not None]
+
+
+def update_email_candidate_decision(
+    candidate_id: int,
+    decision_status: str,
+    metadata_updates: dict | None = None,
+) -> None:
+    existing = get_email_candidate(candidate_id)
+    if existing is None:
+        raise KeyError(f"Unknown email candidate id={candidate_id}")
+    merged_metadata = dict(existing["metadata"])
+    if metadata_updates:
+        merged_metadata.update(metadata_updates)
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE email_candidates
+            SET decision_status = ?,
+                metadata_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                decision_status,
+                json.dumps(merged_metadata, ensure_ascii=True, sort_keys=True),
+                candidate_id,
+            ),
+        )
+        conn.commit()
+
+
+def mark_email_candidate_notified(candidate_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE email_candidates
+            SET notified = 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (candidate_id,),
+        )
+        conn.commit()
+
+
 def _connect() -> sqlite3.Connection:
     config.STATE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     return sqlite3.connect(config.STATE_DB_PATH)
+
+
+def _candidate_decision_status(status: str) -> str:
+    if status == "ready":
+        return "pending_confirmation"
+    if status == "needs_clarification":
+        return "needs_clarification"
+    return "ignored"
+
+
+def _row_to_email_candidate(row) -> dict | None:
+    if row is None:
+        return None
+    payload = json.loads(row[6])
+    return {
+        "id": row[0],
+        "message_id": row[1],
+        "status": row[2],
+        "decision_status": row[3],
+        "reason": row[4],
+        "summary": row[5],
+        "candidate": payload,
+        "metadata": json.loads(row[7]),
+        "notified": bool(row[8]),
+        "created_at": row[9],
+        "updated_at": row[10],
+    }
 
 
 def _resolution_to_dict(resolution: IntentResolution) -> dict:

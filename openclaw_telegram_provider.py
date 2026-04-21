@@ -23,10 +23,10 @@ def build_extractor_from_config():
     if config.TELEGRAM_EXTRACTOR_BACKEND != "openclaw":
         return None
 
-    if not config.OPENCLAW_API_URL or not config.OPENCLAW_MODEL:
+    if not config.OPENCLAW_API_URL or not config.OPENCLAW_TELEGRAM_MODEL:
         log.warning(
             "Telegram extractor backend is set to openclaw, but OPENCLAW_API_URL "
-            "or OPENCLAW_MODEL is missing. Falling back to heuristics."
+            "or OPENCLAW_TELEGRAM_MODEL is missing. Falling back to heuristics."
         )
         return None
 
@@ -60,7 +60,7 @@ def _send_chat_completion_request(prompt: str) -> dict[str, Any]:
         headers["Authorization"] = f"Bearer {config.OPENCLAW_API_KEY}"
 
     payload = {
-        "model": config.OPENCLAW_MODEL,
+        "model": config.OPENCLAW_TELEGRAM_MODEL,
         "temperature": 0,
         "response_format": {"type": "json_object"},
         "messages": [

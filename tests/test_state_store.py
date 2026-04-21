@@ -96,3 +96,68 @@ def test_processed_input_round_trip():
     assert stored["status"] == "processed"
     assert stored["metadata"]["subject"] == "Reminder"
     assert state_store.is_processed_input("gmail", "msg-123") is True
+
+
+def test_email_candidate_round_trip():
+    candidate_id = state_store.save_email_candidate(
+        message_id="msg-555",
+        status="ready",
+        reason="Enough information.",
+        summary="Alpha-Math | calendar=younha | date=2026-04-17",
+        candidate_payload={
+            "status": "ready",
+            "message_id": "msg-555",
+            "reason": "Enough information.",
+            "summary": "Alpha-Math | calendar=younha | date=2026-04-17",
+            "missing_fields": [],
+            "intent": {
+                "action": "create_event",
+                "source": "email",
+                "raw_input": "Registration confirmation",
+                "target_calendar": "younha",
+                "title": "Alpha-Math",
+                "target_date": "2026-04-17",
+                "date_range": None,
+                "time_range": {"start": "17:00", "end": "18:00"},
+                "recurrence": [],
+                "search_query": None,
+                "help_topic": None,
+                "limit": None,
+                "changes": {},
+                "metadata": {"email_message_id": "msg-555"},
+            },
+        },
+        metadata={"subject": "Registration confirmation"},
+    )
+
+    stored = state_store.get_email_candidate(candidate_id)
+
+    assert stored is not None
+    assert stored["message_id"] == "msg-555"
+    assert stored["decision_status"] == "pending_confirmation"
+    assert stored["candidate"]["intent"]["title"] == "Alpha-Math"
+    assert stored["metadata"]["subject"] == "Registration confirmation"
+
+
+def test_mark_email_candidate_notified_and_ignore():
+    candidate_id = state_store.save_email_candidate(
+        message_id="msg-777",
+        status="ready",
+        reason="Enough information.",
+        summary="Alpha-Math",
+        candidate_payload={"status": "ready", "message_id": "msg-777", "intent": None},
+        metadata={},
+    )
+
+    state_store.mark_email_candidate_notified(candidate_id)
+    state_store.update_email_candidate_decision(
+        candidate_id,
+        "ignored",
+        metadata_updates={"ignored_by_user_id": 1},
+    )
+
+    stored = state_store.get_email_candidate(candidate_id)
+    assert stored is not None
+    assert stored["notified"] is True
+    assert stored["decision_status"] == "ignored"
+    assert stored["metadata"]["ignored_by_user_id"] == 1

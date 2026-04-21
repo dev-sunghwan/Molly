@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass
+from email.utils import parseaddr
 from typing import Any
 
 
@@ -58,6 +59,12 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
         internal_date=payload.get("internalDate"),
         raw_payload=payload,
     )
+
+
+def extract_sender_email(sender_header: str) -> str | None:
+    _, email_address = parseaddr(sender_header or "")
+    normalized = email_address.strip().lower()
+    return normalized or None
 
 
 def _header_map(headers: list[dict[str, str]]) -> dict[str, str]:

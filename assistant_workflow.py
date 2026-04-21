@@ -10,8 +10,10 @@ The implementation is intentionally hybrid:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 import config
+import gmail_adapter
 import utils
 from email_extraction import ExtractedEventDraft
 from gmail_adapter import GmailMessage
@@ -38,6 +40,15 @@ def build_candidate_from_email(
     message: GmailMessage,
     extracted_draft: ExtractedEventDraft | None = None,
 ) -> EmailCandidate:
+    sender_email = gmail_adapter.extract_sender_email(message.sender)
+    if config.GMAIL_ALLOWED_SENDERS and sender_email not in config.GMAIL_ALLOWED_SENDERS:
+        return EmailCandidate(
+            status=CandidateStatus.IGNORED,
+            message_id=message.message_id,
+            reason="Sender is not in Molly's Gmail allowlist.",
+            summary=message.subject or message.snippet,
+        )
+
     if extracted_draft is not None:
         candidate = _build_candidate_from_extracted_draft(message, extracted_draft)
         if candidate is not None:
@@ -54,8 +65,8 @@ def build_candidate_from_email(
             summary=message.subject or message.snippet,
         )
 
-    calendar = _extract_calendar(lower)
-    target_date = _extract_date(lower)
+    calendar = _extract_calendar(text, sender_email)
+    target_date = _extract_date(text)
     time_range = _extract_time_range(text)
     title = _derive_title(message)
 
@@ -71,6 +82,7 @@ def build_candidate_from_email(
             "email_message_id": message.message_id,
             "email_subject": message.subject,
             "email_sender": message.sender,
+            "email_sender_normalized": sender_email,
             "all_day": time_range is None,
         },
     )
@@ -104,6 +116,8 @@ def _build_candidate_from_extracted_draft(
     message: GmailMessage,
     draft: ExtractedEventDraft,
 ) -> EmailCandidate | None:
+    sender_email = gmail_adapter.extract_sender_email(message.sender)
+
     if not draft.is_schedule_related:
         return EmailCandidate(
             status=CandidateStatus.IGNORED,
@@ -128,6 +142,7 @@ def _build_candidate_from_extracted_draft(
             "email_message_id": message.message_id,
             "email_subject": message.subject,
             "email_sender": message.sender,
+            "email_sender_normalized": sender_email,
             "all_day": time_range is None,
             "llm_confidence": draft.confidence,
             "llm_reasoning": draft.reasoning,
@@ -177,7 +192,7 @@ def build_intent_resolution(candidate: EmailCandidate) -> IntentResolution | Non
 
 
 def _combined_text(message: GmailMessage) -> str:
-    parts = [message.subject, message.snippet, message.body_text]
+    parts = [message.subject, message.snippet, _clean_body_text(message.body_text)]
     return "\n".join(part for part in parts if part).strip()
 
 
@@ -206,14 +221,45 @@ def _looks_schedule_related(lower_text: str) -> bool:
     return any(keyword in lower_text for keyword in keywords)
 
 
-def _extract_calendar(lower_text: str) -> str | None:
-    for calendar in config.CALENDARS:
-        if calendar in lower_text:
-            return calendar
-    return None
+def _extract_calendar(text: str, sender_email: str | None) -> str | None:
+    lower_text = text.lower()
+    alias_map = {
+        "sunghwan": ["sunghwan", "성환", "sung hwan"],
+        "jeeyoung": ["jeeyoung", "지영", "jiyoung", "ji young"],
+        "younha": ["younha", "윤하", "youn ha"],
+        "haneul": ["haneul", "하늘", "eleanor"],
+        "younho": ["younho", "윤호", "youn ho"],
+        "family": ["family", "가족"],
+    }
+    best_calendar = None
+    best_score = 0
+    for calendar, aliases in alias_map.items():
+        score = sum(lower_text.count(alias.lower()) for alias in aliases)
+        if score > best_score:
+            best_score = score
+            best_calendar = calendar
+    if best_calendar:
+        return best_calendar
+
+    sender_map = {
+        "ray.sunghwan@gmail.com": "sunghwan",
+        "sunghwan.k@hanwha.com": "sunghwan",
+        "jylim3287@gmail.com": "jeeyoung",
+    }
+    return sender_map.get((sender_email or "").lower())
 
 
-def _extract_date(lower_text: str):
+def _extract_date(text: str):
+    lower_text = text.lower()
+    for match in re.finditer(
+        r"\b(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*"
+        r"(?:\s+\d{4})?|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}"
+        r"(?:st|nd|rd|th)?(?:,\s*\d{4})?)\b",
+        lower_text,
+    ):
+        parsed = utils.parse_date(match.group(0))
+        if parsed is not None:
+            return parsed
     tokens = lower_text.replace(",", " ").replace("\n", " ").split()
     for token in tokens:
         parsed = utils.parse_date(token)
@@ -238,6 +284,19 @@ def _parse_date_text(date_text: str | None):
 
 
 def _extract_time_range(text: str):
+    normalized = text.replace("–", "-").replace("—", "-")
+    range_match = re.search(
+        r"\b\d{1,2}(?::|\.)?\d{0,2}\s*(?:am|pm)?\s*-\s*\d{1,2}(?:(?::|\.)\d{2})?\s*(?:am|pm)?(?:\s*(?:bst|gmt|utc))?\b",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if range_match:
+        parsed = utils.parse_time(range_match.group(0))
+        if parsed is not None:
+            from intent_models import TimeRange
+
+            return TimeRange(start=parsed[0], end=parsed[1])
+
     tokens = text.replace("\n", " ").split()
     for token in tokens:
         parsed = utils.parse_time(token.strip(".,"))
@@ -276,6 +335,28 @@ def _candidate_summary(intent: ScheduleIntent) -> str:
     if intent.time_range:
         parts.append(f"time={intent.time_range.start}-{intent.time_range.end}")
     return " | ".join(parts)
+
+
+def _clean_body_text(body_text: str) -> str:
+    if not body_text:
+        return ""
+
+    lines: list[str] = []
+    for raw_line in body_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if line.startswith("---------- Forwarded message"):
+            continue
+        if re.match(r"^(from|sent|date|to|subject|cc|bcc):", lower):
+            continue
+        if lower.startswith("[aws") or lower.startswith("[cid:"):
+            continue
+        if "http://" in lower or "https://" in lower:
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _clarification_prompt(missing_fields: list[str]) -> str:

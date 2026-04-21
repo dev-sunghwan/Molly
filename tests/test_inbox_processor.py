@@ -106,6 +106,11 @@ def test_process_recent_inbox_messages_records_new_candidates(monkeypatch):
         _mark_processed,
     )
     monkeypatch.setattr(
+        inbox_processor.state_store,
+        "save_email_candidate",
+        lambda **kwargs: 42,
+    )
+    monkeypatch.setattr(
         inbox_processor.assistant_workflow,
         "build_candidate_from_email",
         lambda message: type(
@@ -127,3 +132,67 @@ def test_process_recent_inbox_messages_records_new_candidates(monkeypatch):
     assert recorded["source"] == "gmail"
     assert recorded["external_id"] == "msg-2"
     assert recorded["status"] == "needs_clarification"
+    assert recorded["metadata"]["candidate_id"] == 42
+
+
+def test_process_recent_inbox_messages_records_allowlist_ignored_candidates(monkeypatch):
+    monkeypatch.setattr(
+        inbox_processor.gmail_adapter,
+        "list_message_ids",
+        lambda service, max_results=10, query="in:inbox": ["msg-3"],
+    )
+    monkeypatch.setattr(
+        inbox_processor.gmail_adapter,
+        "fetch_message",
+        lambda service, message_id: type(
+            "Msg",
+            (),
+            {
+                "message_id": message_id,
+                "subject": "School notice",
+                "sender": "teacher@example.com",
+            },
+        )(),
+    )
+    monkeypatch.setattr(inbox_processor.state_store, "init_db", lambda: None)
+    monkeypatch.setattr(
+        inbox_processor.state_store,
+        "is_processed_input",
+        lambda source, external_id: False,
+    )
+    recorded = {}
+
+    def _mark_processed(source, external_id, status, metadata):
+        recorded["source"] = source
+        recorded["external_id"] = external_id
+        recorded["status"] = status
+        recorded["metadata"] = metadata
+
+    monkeypatch.setattr(inbox_processor.state_store, "mark_processed_input", _mark_processed)
+    monkeypatch.setattr(
+        inbox_processor.state_store,
+        "save_email_candidate",
+        lambda **kwargs: 99,
+    )
+    monkeypatch.setattr(
+        inbox_processor.assistant_workflow,
+        "build_candidate_from_email",
+        lambda message: type(
+            "Candidate",
+            (),
+            {
+                "status": "ignored",
+                "summary": "School notice",
+                "reason": "Sender is not in Molly's Gmail allowlist.",
+            },
+        )(),
+    )
+
+    processed = inbox_processor.process_recent_inbox_messages(FakeService(), max_results=1)
+
+    assert len(processed) == 1
+    assert processed[0].status == "ignored"
+    assert processed[0].summary == "School notice"
+    assert recorded["status"] == "ignored"
+    assert recorded["metadata"]["sender"] == "teacher@example.com"
+    assert recorded["metadata"]["candidate_id"] == 99
