@@ -427,8 +427,14 @@ def _clarification_prompt(missing_fields: list[str]) -> str:
         return "어느 가족 캘린더에 넣을까요? (Which family calendar should Molly use?)"
     if missing_fields == ["target_date"]:
         return "어떤 날짜로 넣을까요? (What date should Molly use?)"
+    if missing_fields == ["time_range"]:
+        return "몇 시로 넣을까요? 시작 시간을 알려주세요. (What time should Molly use?)"
     if "target_calendar" in missing_fields and "target_date" in missing_fields:
         return "누구 일정인지와 날짜를 알려주세요. (Tell Molly the calendar and date.)"
+    if "target_calendar" in missing_fields and "time_range" in missing_fields:
+        return "누구 일정인지와 시간을 알려주세요. (Tell Molly the calendar and time.)"
+    if "target_date" in missing_fields and "time_range" in missing_fields:
+        return "날짜와 시간을 알려주세요. (Tell Molly the date and time.)"
     if "title" in missing_fields:
         return "일정 제목을 조금 더 구체적으로 알려주세요. (Please clarify the event title.)"
     return "Molly needs a bit more information before it can continue."
@@ -446,4 +452,6 @@ def _missing_fields_for_create(intent: ScheduleIntent, additional_missing: list[
         missing.append("title")
     if intent.target_date is None and "target_date" not in missing:
         missing.append("target_date")
+    if intent.time_range is None and "time_range" not in missing:
+        missing.append("time_range")
     return missing

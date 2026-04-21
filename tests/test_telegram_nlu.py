@@ -49,6 +49,27 @@ def test_korean_create_request_needs_date_clarification():
     assert "target_date" in resolution.missing_fields
 
 
+def test_korean_create_request_needs_time_clarification():
+    resolution = telegram_nlu.parse_free_text_to_intent("내일 윤하 테니스 넣어줘")
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.NEEDS_CLARIFICATION
+    assert "time_range" in resolution.missing_fields
+
+
+def test_clarification_state_can_fill_time_range():
+    resolution = telegram_nlu.parse_free_text_to_intent("내일 윤하 테니스 넣어줘")
+    clarification_state.set_pending(999, resolution)
+
+    updated = clarification_state.apply_reply(999, "17:00")
+
+    assert updated is not None
+    assert updated.status == ResolutionStatus.READY
+    assert updated.intent.time_range is not None
+    assert updated.intent.time_range.start == "17:00"
+    assert updated.intent.time_range.end == "18:00"
+
+
 def test_clarification_state_can_fill_target_date():
     resolution = telegram_nlu.parse_free_text_to_intent("윤하 테니스 넣어줘")
     clarification_state.set_pending(999, resolution)
@@ -56,9 +77,10 @@ def test_clarification_state_can_fill_target_date():
     updated = clarification_state.apply_reply(999, "tomorrow")
 
     assert updated is not None
-    assert updated.status == ResolutionStatus.READY
+    assert updated.status == ResolutionStatus.NEEDS_CLARIFICATION
     assert updated.intent.target_calendar == "younha"
     assert updated.intent.target_date == utils._today_local() + timedelta(days=1)
+    assert "time_range" in updated.missing_fields
 
 
 def test_structured_draft_can_drive_create_event():

@@ -15,6 +15,7 @@ def test_build_create_event_prompt_mentions_required_schema():
     assert "target_calendar" in prompt
     assert "YYYY-MM-DD" in prompt
     assert "Telegram message" in prompt
+    assert "Do not guess or default a time" in prompt
 
 
 def test_run_create_event_bridge_executes_payload():

@@ -42,7 +42,7 @@ def build_create_event_prompt(message_text: str) -> str:
         '  "nlu": "openclaw",\n'
         '  "request_source": "openclaw_cli_bridge"\n'
         "}\n"
-        "If start_time is known but end_time is unknown for a one-off timed event, you may omit end_time. Molly will default it sensibly.\n"
+        "Do not guess or default a time. If the user did not clearly provide the time for a timed event, ask for clarification instead.\n"
         "Only output a request when the schedule information is complete enough to schedule.\n"
         "If the request is incomplete or ambiguous, output:\n"
         '{ "status": "needs_clarification", "reason": "..." }\n\n'
