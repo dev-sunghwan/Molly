@@ -121,14 +121,14 @@ def format_search_results(events: list[dict], keyword: str) -> str:
     return "\n".join(lines)
 
 
-def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) -> str:
+def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int, label_override: str | None = None) -> str:
     """Format upcoming events — grouped by date, each line shows time + calendar + title."""
     if not events:
-        label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "any calendar"
+        label = label_override or (config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "any calendar")
         return f"No upcoming events in {label}."
 
     tz = utils.TZ
-    label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "All calendars"
+    label = label_override or (config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "All calendars")
     lines = [f"Upcoming ({label}, next {limit}):"]
     by_date: dict = {}
 
@@ -161,14 +161,14 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int) 
     return "\n".join(lines)
 
 
-def format_next_events(events: list[dict], cal_key: str | None) -> str:
+def format_next_events(events: list[dict], cal_key: str | None, label_override: str | None = None) -> str:
     """Format next event(s) — shows date + time + calendar."""
     if not events:
-        label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "any calendar"
+        label = label_override or (config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "any calendar")
         return f"No upcoming events in {label}."
 
     tz = utils.TZ
-    label = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "all calendars"
+    label = label_override or (config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key) if cal_key else "all calendars")
     lines = [f"Next event ({label}):"]
     for event in events:
         start = event.get("start", {})

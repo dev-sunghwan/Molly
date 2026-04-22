@@ -17,6 +17,7 @@ from calendar_repository import (
     format_search_results,
     format_upcoming_events,
 )
+from datetime import date, datetime
 import config
 from intent_models import ExecutionResult, IntentAction, IntentResolution, ResolutionStatus
 import state_store
@@ -77,8 +78,14 @@ class MollyCore:
                 self._record_result(intent, message, user_id)
                 return message
             if cmd_name == "next":
-                events = self.calendar_repo.get_next_events(intent.target_calendar, limit=1)
-                message = format_next_events(events, intent.target_calendar)
+                if intent.target_calendar is None:
+                    events = self.calendar_repo.get_upcoming_events(None, limit=max(1, len(config.CALENDARS)))
+                    events, label = self._filter_events_for_actor(events, intent.target_calendar, user_id)
+                    events = events[:1]
+                else:
+                    events = self.calendar_repo.get_next_events(intent.target_calendar, limit=1)
+                    events, label = self._filter_events_for_actor(events, intent.target_calendar, user_id)
+                message = format_next_events(events, intent.target_calendar, label_override=label)
                 self._record_result(intent, message, user_id)
                 return message
 
@@ -86,10 +93,12 @@ class MollyCore:
                 intent.target_calendar,
                 limit=intent.limit or 10,
             )
+            events, label = self._filter_events_for_actor(events, intent.target_calendar, user_id)
             message = format_upcoming_events(
                 events,
                 intent.target_calendar,
                 intent.limit or 10,
+                label_override=label,
             )
             self._record_result(intent, message, user_id)
             return message
@@ -170,6 +179,38 @@ class MollyCore:
             return message
 
         raise ValueError(f"Unsupported intent action: {intent.action}")
+
+
+    def _filter_events_for_actor(
+        self,
+        events: list[dict],
+        target_calendar: str | None,
+        user_id: int | None,
+    ) -> tuple[list[dict], str | None]:
+        if target_calendar is not None or user_id is None:
+            return events, None
+
+        actor = config.USERS.get(user_id)
+        subscribed = set(actor.get("reminder_calendars", [])) if actor else set()
+        if not subscribed:
+            return events, None
+
+        filtered = [
+            event
+            for event in events
+            if self._event_calendar_key(event) in subscribed
+        ]
+        return filtered, f"{actor['name']} calendars"
+
+    @staticmethod
+    def _event_calendar_key(event: dict) -> str:
+        display = (event.get("_calendar_name") or "").lower()
+        if display in config.CALENDAR_DISPLAY_NAMES:
+            return display
+        for key, label in config.CALENDAR_DISPLAY_NAMES.items():
+            if label.lower() == display:
+                return key
+        return display
 
     def _record_result(self, intent, message: str, user_id: int | None) -> None:
         actor_name = None
