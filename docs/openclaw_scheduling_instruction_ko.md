@@ -80,6 +80,8 @@
 기본 명령 표면은 다음이다.
 
 ```bash
+./.venv/bin/python scripts/molly_schedule_action.py command --text "today"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "week"
 ./.venv/bin/python scripts/molly_schedule_action.py create ...
 ./.venv/bin/python scripts/molly_schedule_action.py view ...
 ./.venv/bin/python scripts/molly_schedule_action.py search ...
@@ -103,18 +105,27 @@
 
 ### 2. 일정 조회
 
+simple read는 canonical command passthrough를 우선한다.
+
 ```bash
-./.venv/bin/python scripts/molly_schedule_action.py view \
-  --scope today \
-  --raw-input "오늘 일정 보여줘"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "today"
 ```
 
 ```bash
+./.venv/bin/python scripts/molly_schedule_action.py command --text "week"
+```
+
+```bash
+./.venv/bin/python scripts/molly_schedule_action.py command --text "upcoming Family 10"
+```
+
+구조화된 view bridge는 날짜 지정이나 surface 제약이 있을 때 보조적으로 쓴다.
+
+```bash
 ./.venv/bin/python scripts/molly_schedule_action.py view \
-  --scope upcoming \
-  --calendar family \
-  --limit 10 \
-  --raw-input "가족 일정 앞으로 10개 보여줘"
+  --scope date \
+  --date 2026-04-18 \
+  --raw-input "4월 18일 일정 보여줘"
 ```
 
 ### 3. 일정 검색

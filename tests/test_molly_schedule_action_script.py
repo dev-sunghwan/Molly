@@ -52,3 +52,27 @@ def test_molly_schedule_action_gmail_confirm_help():
     assert "--candidate-id" in result.stdout
     assert "--actor-user-id" in result.stdout
     assert "--actor-name" in result.stdout
+
+
+def test_molly_schedule_action_view_help_lists_core_scopes():
+    result = subprocess.run(
+        [sys.executable, "scripts/molly_schedule_action.py", "view", "--help"],
+        cwd="/home/sunghwan/projects/Molly",
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "week_next" in result.stdout
+    assert "month_next" in result.stdout
+
+
+def test_molly_schedule_action_command_help():
+    result = subprocess.run(
+        [sys.executable, "scripts/molly_schedule_action.py", "command", "--help"],
+        cwd="/home/sunghwan/projects/Molly",
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert "--text" in result.stdout
+    assert "actor-user-id" in result.stdout

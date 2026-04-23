@@ -195,3 +195,16 @@ def test_resolution_from_request_builds_move_event_intent():
     assert resolution.intent.source_calendar == "family"
     assert resolution.intent.target_calendar == "younha"
     assert resolution.intent.target_date.isoformat() == "2026-05-17"
+
+
+def test_resolution_from_request_builds_view_week_intent():
+    resolution = resolution_from_request(
+        {
+            "action": "view",
+            "scope": "week",
+        }
+    )
+
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.VIEW_RANGE
+    assert resolution.intent.metadata["command"] == "week"

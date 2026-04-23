@@ -19,20 +19,22 @@
 
 일정 관련 요청에서는 OpenClaw가:
 
-1. 일정 의도를 구조화한다
-2. 정보가 충분하면 바로 Molly fast-path CLI를 호출한다
-3. 정보가 부족하면 짧게 clarification 한다
-4. 불필요한 memory/file tool 사용은 피한다
+1. simple read면 canonical Molly command로 바로 매핑한다
+2. write 또는 구조화가 필요한 경우에만 intent를 구조화한다
+3. 정보가 충분하면 바로 Molly fast-path CLI를 호출한다
+4. 정보가 부족하면 짧게 clarification 한다
+5. 불필요한 memory/file tool 사용은 피한다
 
 ## fast-path CLI
 
+- `scripts/molly_schedule_action.py command`
 - `scripts/molly_schedule_action.py create`
 - `scripts/molly_schedule_action.py view`
 - `scripts/molly_schedule_action.py search`
 - `scripts/molly_schedule_action.py delete`
 - `scripts/molly_schedule_action.py update`
 
-이 경로는 OpenClaw가 긴 stdin JSON 조립 대신 명시적 argv 명령을 만들 수 있게 해준다.
+이 경로는 OpenClaw가 긴 stdin JSON 조립 대신 명시적 argv 명령을 만들 수 있게 해준다. 특히 simple read는 `command` 경로를 우선해 canonical Molly command를 그대로 전달하는 것이 권장된다.
 
 ## OpenClaw scheduling 지침 초안
 

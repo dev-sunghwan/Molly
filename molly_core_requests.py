@@ -116,6 +116,16 @@ def _view_resolution(payload: dict) -> IntentResolution:
         )
         return IntentResolution(status=ResolutionStatus.READY, intent=intent)
 
+    if scope in {"week", "week_next", "month", "month_next"}:
+        intent = ScheduleIntent(
+            action=IntentAction.VIEW_RANGE,
+            source=IntentSource.TELEGRAM_FREE_TEXT,
+            raw_input=raw_input,
+            target_calendar=calendar_key,
+            metadata={"command": scope},
+        )
+        return IntentResolution(status=ResolutionStatus.READY, intent=intent)
+
     if scope == "date":
         target_date = _parse_date(payload.get("target_date"))
         intent = ScheduleIntent(
