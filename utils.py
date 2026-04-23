@@ -187,7 +187,7 @@ def make_datetime(d: date, hhmm: str) -> datetime:
 
 def format_date_header(d: date) -> str:
     """e.g.  📅 Wednesday, 08-04"""
-    return f"📅 {d.strftime('%A, %d-%m')}"
+    return f"📅 *{d.strftime('%A, %d-%m')}*"
 
 
 def format_short_date(d: date) -> str:

@@ -140,8 +140,12 @@ def format_upcoming_events(events: list[dict], cal_key: str | None, limit: int, 
             day = date.fromisoformat(start["date"])
         by_date.setdefault(day, []).append(event)
 
+    first_day = True
     for day, day_events in by_date.items():
-        lines.append(f"\n{utils.format_short_day_date(day)}")
+        if not first_day:
+            lines.append("")
+        lines.append(f"*{utils.format_short_day_date(day)}*")
+        first_day = False
         for event in day_events:
             start = event.get("start", {})
             cal_name = utils.format_calendar_label(event)
