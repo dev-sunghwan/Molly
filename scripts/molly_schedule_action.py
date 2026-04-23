@@ -299,15 +299,6 @@ def _execute_gmail_args(args: argparse.Namespace) -> dict:
 
 
 
-def _actor_default_calendar(actor_user_id: int | None) -> str | None:
-    if actor_user_id is None:
-        return None
-    user = config.USERS.get(int(actor_user_id))
-    if not user:
-        return None
-    return config.normalize_calendar_name(user.get("name"))
-
-
 def _parse_short_or_full_date(token: str):
     parsed = utils.parse_date(token)
     if parsed is not None:
@@ -349,9 +340,6 @@ def _parse_flexible_delete_command(text: str, actor_user_id: int | None) -> dict
         if maybe_calendar is not None:
             calendar = maybe_calendar
             body_wo_bracket = body_wo_bracket[len(tokens[0]):].strip()
-
-    if calendar is None:
-        calendar = _actor_default_calendar(actor_user_id)
 
     date_match = re.search(r"\bon\s+(\d{1,2}-\d{1,2}(?:-\d{4})?)\b", body_wo_bracket, flags=re.IGNORECASE)
     date_token = date_match.group(1) if date_match else None
@@ -411,8 +399,12 @@ def _execute_command_text(
         if flexible_delete is not None:
             command = flexible_delete
 
-    if command.get('cmd') == 'delete' and not command.get('calendar'):
-        command['calendar'] = _actor_default_calendar(actor_user_id)
+    if command.get('cmd') == 'delete' and (command.get('start') or command.get('title')) and not command.get('calendar'):
+        return {
+            'success': False,
+            'action': 'delete_event',
+            'message': 'Which calendar should I delete it from?'
+        }
 
     if command.get('cmd') == 'delete' and (command.get('start') or command.get('title')) and command.get('calendar'):
         message = calendar_repo.find_and_delete_event(

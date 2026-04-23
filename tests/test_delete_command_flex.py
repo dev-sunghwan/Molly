@@ -50,7 +50,7 @@ def test_flexible_delete_from_rendered_line(monkeypatch, tmp_path):
     assert "Deleted from JeeYoung" in result["message"]
 
 
-def test_flexible_delete_by_date_time_uses_actor_calendar(monkeypatch, tmp_path):
+def test_flexible_delete_by_date_time_without_calendar_asks(monkeypatch, tmp_path):
     _seed_event(monkeypatch, tmp_path)
 
     result = molly_schedule_action._execute_command_text(
@@ -58,5 +58,5 @@ def test_flexible_delete_by_date_time_uses_actor_calendar(monkeypatch, tmp_path)
         actor_user_id=8793305621,
     )
 
-    assert result["success"] is True
-    assert "Deleted from JeeYoung" in result["message"]
+    assert result["success"] is False
+    assert result["message"] == "Which calendar should I delete it from?"
