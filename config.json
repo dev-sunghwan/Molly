@@ -3,19 +3,33 @@
   "calendars": {
     "SungHwan": "24d438a36f22c5ab862a8e51ae4aa801ad52e1ba7ee6f721cc1baa78713c9638@group.calendar.google.com",
     "JeeYoung": "c8b045e9ed68ff7c852a5e2a966ff4a4610ab3a34cf5a3191ad877474276cf76@group.calendar.google.com",
-    "YounHa":   "4f72495b248015988e364f80da462be2bbbf2b168c43e2c65cb1b5024569ae27@group.calendar.google.com",
-    "HaNeul":   "aeaa124409f15f6b1bb2d2536a57c95d0007d853e60a477c32ef6dfb06c15646@group.calendar.google.com",
-    "YounHo":   "b0fc45820ba3a51774033a9410adc8b8b7bc69b6a54a16185e206db4b8d4bdfc@group.calendar.google.com",
-    "Family":   "0031182d2834d1a360c965234cb6eef6da974059506287fca72e1eb0bf1ea9bb@group.calendar.google.com"
+    "YounHa": "4f72495b248015988e364f80da462be2bbbf2b168c43e2c65cb1b5024569ae27@group.calendar.google.com",
+    "HaNeul": "aeaa124409f15f6b1bb2d2536a57c95d0007d853e60a477c32ef6dfb06c15646@group.calendar.google.com",
+    "YounHo": "b0fc45820ba3a51774033a9410adc8b8b7bc69b6a54a16185e206db4b8d4bdfc@group.calendar.google.com",
+    "Family": "0031182d2834d1a360c965234cb6eef6da974059506287fca72e1eb0bf1ea9bb@group.calendar.google.com"
   },
   "users": {
     "8289608844": {
       "name": "SungHwan",
-      "reminder_calendars": ["SungHwan", "HaNeul", "YounHa", "YounHo", "Family"]
+      "reminder_calendars": [
+        "SungHwan",
+        "JeeYoung",
+        "YounHa",
+        "HaNeul",
+        "YounHo",
+        "Family"
+      ]
     },
     "8793305621": {
       "name": "JeeYoung",
-      "reminder_calendars": ["JeeYoung", "HaNeul", "YounHa", "YounHo", "Family"]
+      "reminder_calendars": [
+        "SungHwan",
+        "JeeYoung",
+        "YounHa",
+        "HaNeul",
+        "YounHo",
+        "Family"
+      ]
     }
   },
   "scheduler": {
