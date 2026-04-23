@@ -216,6 +216,15 @@ def test_add_recurring_multiword_title():
     assert result["title"] == "Sunday roast"
     assert result["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=SU"]
 
+def test_add_recurring_full_weekday_name():
+    result = commands.parse("add YounHa swimming every Friday 19:15-19:45")
+    assert result["cmd"] == "add"
+    assert result["title"] == "swimming"
+    assert result["start"] == "19:15"
+    assert result["end"] == "19:45"
+    assert result["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=FR"]
+    assert result["date"].weekday() == 4
+
 def test_add_recurring_bad_day():
     result = commands.parse("add YounHa tennis every Xyz 17:00")
     assert "error" in result

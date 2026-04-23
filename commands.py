@@ -446,7 +446,7 @@ def _parse_add_recurring(tokens: list, cal_key: str, cal_token: str) -> dict:
         }
 
     # First occurrence = next occurrence of that weekday (reuses existing logic)
-    first_date = utils.parse_date(day_token.lower())
+    first_date = utils.parse_date(day_token.strip().lower()[:3])
     recurrence = [f"RRULE:FREQ=WEEKLY;BYDAY={rrule_day}"]
 
     if len(after_every) >= 2:
