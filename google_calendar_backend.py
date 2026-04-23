@@ -258,10 +258,27 @@ def find_and_edit_event(service, cal_key: str, target_date: date | None, title: 
             .execute()
         )
         events = result.get("items", [])
-        matches = [event for event in events if event.get("summary", "").lower() == title.lower()]
+        matches = []
+        for event in events:
+            if title and event.get("summary", "").lower() != title.lower():
+                continue
+            if start_time:
+                start = event.get("start", {})
+                if "dateTime" not in start:
+                    continue
+                dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+                if dt.strftime("%H:%M") != start_time:
+                    continue
+            matches.append(event)
 
         if not matches:
-            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+            if title and start_time:
+                return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
+            if title:
+                return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+            if start_time:
+                return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
+            return f"❌ No matching event found in {cal_display} {search_desc}"
 
         if len(matches) > 1:
             lines = [f"❌ Multiple events named '{title}' in {cal_display}. Nothing changed. Specify a date:\n"]
@@ -414,7 +431,7 @@ def move_event(service, source_cal_key: str, target_cal_key: str, target_date: d
     except HttpError as e:
         return f"❌ Failed to move event: {e}"
 
-def find_and_delete_event(service, cal_key: str, target_date: date | None, title: str) -> str:
+def find_and_delete_event(service, cal_key: str, target_date: date | None, title: str | None, start_time: str | None = None) -> str:
     """Find an event by title in a specific calendar and delete it."""
     cal_id = config.CALENDARS[cal_key]
     cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
@@ -444,10 +461,27 @@ def find_and_delete_event(service, cal_key: str, target_date: date | None, title
             .execute()
         )
         events = result.get("items", [])
-        matches = [event for event in events if event.get("summary", "").lower() == title.lower()]
+        matches = []
+        for event in events:
+            if title and event.get("summary", "").lower() != title.lower():
+                continue
+            if start_time:
+                start = event.get("start", {})
+                if "dateTime" not in start:
+                    continue
+                dt = datetime.fromisoformat(start["dateTime"]).astimezone(tz)
+                if dt.strftime("%H:%M") != start_time:
+                    continue
+            matches.append(event)
 
         if not matches:
-            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+            if title and start_time:
+                return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
+            if title:
+                return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+            if start_time:
+                return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
+            return f"❌ No matching event found in {cal_display} {search_desc}"
 
         if len(matches) > 1:
             lines = [f"❌ Multiple events named '{title}' in {cal_display}. Nothing deleted. Specify a date:\n"]

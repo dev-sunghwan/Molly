@@ -49,12 +49,13 @@ class CalendarRepository:
             changes,
         )
 
-    def find_and_delete_event(self, cal_key: str, target_date: date | None, title: str) -> str:
+    def find_and_delete_event(self, cal_key: str, target_date: date | None, title: str | None, start_time: str | None = None) -> str:
         return self.backend_module.find_and_delete_event(
             self.service,
             cal_key,
             target_date,
             title,
+            start_time=start_time,
         )
 
     def move_event(self, source_cal_key: str, target_cal_key: str, target_date: date | None, title: str) -> str:

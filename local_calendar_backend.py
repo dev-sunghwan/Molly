@@ -192,7 +192,13 @@ def find_and_edit_event(
     search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
 
     if not matches:
-        return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+        if title and start_time:
+            return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
+        if title:
+            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+        if start_time:
+            return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
+        return f"❌ No matching event found in {cal_display} {search_desc}"
     if len(matches) > 1:
         return _multiple_matches_message(cal_key, title, matches, action="changed")
 
@@ -300,14 +306,21 @@ def find_and_delete_event(
     service: LocalCalendarService,
     cal_key: str,
     target_date: date | None,
-    title: str,
+    title: str | None,
+    start_time: str | None = None,
 ) -> str:
-    matches = _expanded_matches(cal_key, title, target_date)
+    matches = _expanded_matches(cal_key, title, target_date, start_time=start_time)
     cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
     search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
 
     if not matches:
-        return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+        if title and start_time:
+            return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
+        if title:
+            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+        if start_time:
+            return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
+        return f"❌ No matching event found in {cal_display} {search_desc}"
     if len(matches) > 1:
         return _multiple_matches_message(cal_key, title, matches, action="deleted")
 
@@ -319,7 +332,8 @@ def find_and_delete_event(
     with _connect() as conn:
         conn.execute("DELETE FROM local_events WHERE id = ?", (row["id"],))
     match_date = utils.format_short_day_date(date.fromisoformat(row["start_date"]))
-    return f"Deleted from {cal_display}:\n  {title}\n  {match_date}"
+    deleted_title = title or match.get('summary') or '(no title)'
+    return f"Deleted from {cal_display}:\n  {deleted_title}\n  {match_date}"
 
 
 def search_events(service: LocalCalendarService, keyword: str, days: int = 90) -> list[dict]:
@@ -643,11 +657,25 @@ def _find_conflicts(
     return conflicts
 
 
-def _expanded_matches(cal_key: str, title: str, target_date: date | None) -> list[dict]:
+def _expanded_matches(cal_key: str, title: str | None, target_date: date | None, start_time: str | None = None) -> list[dict]:
     start_date = target_date or utils._today_local()
     end_date = target_date or (utils._today_local() + timedelta(days=90))
     candidates = _expand_events(start_date, end_date, calendar_key=cal_key)
-    return [ev for ev in candidates if ev.get("summary", "").lower() == title.lower()]
+
+    def _matches(ev: dict) -> bool:
+        if title and ev.get("summary", "").lower() != title.lower():
+            return False
+        if start_time:
+            start = ev.get("start", {})
+            if "dateTime" in start:
+                dt = datetime.fromisoformat(start["dateTime"]).astimezone(utils.TZ)
+                if dt.strftime("%H:%M") != start_time:
+                    return False
+            else:
+                return False
+        return True
+
+    return [ev for ev in candidates if _matches(ev)]
 
 
 def _multiple_matches_message(cal_key: str, title: str, matches: list[dict], action: str = "changed") -> str:
