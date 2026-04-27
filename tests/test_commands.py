@@ -93,6 +93,11 @@ def test_add_missing_tokens():
     result = commands.parse("add YounHa 14:00")
     assert "error" in result
 
+def test_add_missing_title_with_date_and_time_is_rejected():
+    result = commands.parse("add YounHo 2026-05-24 14:00-16:00")
+    assert "error" in result
+    assert "title" in result["error"].lower()
+
 def test_add_no_date_defaults_today():
     # add <cal> <title> <time> — no date → defaults to today
     result = commands.parse("add SungHwan dentist 14:00")

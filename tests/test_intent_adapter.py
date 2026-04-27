@@ -84,3 +84,12 @@ def test_parse_error_becomes_invalid_resolution():
     assert resolution.status == ResolutionStatus.INVALID
     assert resolution.intent.action == IntentAction.HELP
     assert resolution.reason == "bad input"
+
+def test_missing_title_add_command_stays_invalid():
+    resolution = parse_text_to_intent(
+        "add YounHo 2026-05-24 14:00-16:00",
+        commands.parse,
+    )
+
+    assert resolution.status == ResolutionStatus.INVALID
+    assert "title" in (resolution.reason or "").lower()

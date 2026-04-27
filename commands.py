@@ -10,6 +10,7 @@ Returns a dict with key "cmd" and relevant fields, or a dict with "error" key.
 """
 from __future__ import annotations
 
+import re
 import config
 import utils
 
@@ -358,6 +359,15 @@ def _parse_add(text: str) -> dict:
 
     if last_is_time:
         # Timed event — check if second-to-last token is a date
+        if len(tokens) == 3 and (utils.parse_date(tokens[1].lower()) is not None or re.fullmatch(r"\d{4}-\d{2}-\d{2}", tokens[1]) is not None):
+            return {
+                "error": (
+                    "❌ Event title is missing.\n"
+                    "Use: add <calendar> <title> <date> <time>\n"
+                    "Example: add YounHo Landon birthday party 24-05 14:00-16:00"
+                )
+            }
+
         if len(tokens) >= 4 and utils.parse_date(tokens[-2].lower()) is not None:
             event_date = utils.parse_date(tokens[-2].lower())
             title_tokens = tokens[1:-2]

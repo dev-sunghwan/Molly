@@ -235,6 +235,9 @@ def _infer_add_without_calendar(text: str) -> IntentResolution | None:
     if not tokens:
         return None
 
+    if tokens[0].lower() in config.CALENDARS:
+        return None
+
     lower_tokens = [token.lower() for token in tokens]
 
     if "every" in lower_tokens:
