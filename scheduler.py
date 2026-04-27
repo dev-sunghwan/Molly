@@ -67,7 +67,7 @@ def _cal_key_for_event(event: dict) -> str:
 
 
 def _format_reminder_text(event: dict, start_dt: datetime, minutes_away: int) -> str:
-    cal_label = event.get("_calendar_name", "")
+    cal_label = utils.format_calendar_label(event)
     label = f"[{cal_label}] " if cal_label else ""
     lines = [
         f"Reminder — in {minutes_away} min:",
