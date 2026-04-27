@@ -85,11 +85,31 @@ def test_parse_error_becomes_invalid_resolution():
     assert resolution.intent.action == IntentAction.HELP
     assert resolution.reason == "bad input"
 
-def test_missing_title_add_command_stays_invalid():
+
+
+def test_missing_title_add_command_requests_clarification():
     resolution = parse_text_to_intent(
         "add YounHo 2026-05-24 14:00-16:00",
         commands.parse,
     )
 
-    assert resolution.status == ResolutionStatus.INVALID
-    assert "title" in (resolution.reason or "").lower()
+    assert resolution.status == ResolutionStatus.NEEDS_CLARIFICATION
+    assert resolution.intent.action == IntentAction.CREATE_EVENT
+    assert resolution.intent.target_calendar == "younho"
+    assert resolution.intent.target_date == date(2026, 5, 24)
+    assert resolution.intent.time_range is not None
+    assert resolution.missing_fields == ["title"]
+
+
+def test_missing_calendar_add_without_date_requests_date_too():
+    resolution = parse_text_to_intent(
+        "add tennis 17:00-18:00",
+        commands.parse,
+    )
+
+    assert resolution.status == ResolutionStatus.NEEDS_CLARIFICATION
+    assert resolution.intent.action == IntentAction.CREATE_EVENT
+    assert resolution.intent.title == "tennis"
+    assert resolution.intent.target_date is None
+    assert resolution.intent.time_range is not None
+    assert resolution.missing_fields == ["target_calendar", "target_date"]

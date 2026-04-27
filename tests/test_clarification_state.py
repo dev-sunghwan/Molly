@@ -1,6 +1,7 @@
 from datetime import date
 
 import clarification_state
+import commands
 from intent_adapter import parse_text_to_intent
 from intent_models import IntentAction, ResolutionStatus
 
@@ -41,3 +42,23 @@ def test_unusable_reply_keeps_pending_state():
 
     assert updated is None
     assert clarification_state.get_pending(123) is not None
+
+
+def test_pending_missing_title_accepts_title_reply():
+    resolution = parse_text_to_intent("add YounHo 2026-05-24 14:00-16:00", commands.parse)
+    clarification_state.set_pending(123, resolution)
+
+    updated = clarification_state.apply_reply(123, "Landon birthday party")
+
+    assert updated is not None
+    assert updated.status == ResolutionStatus.READY
+    assert updated.intent.target_calendar == "younho"
+    assert updated.intent.title == "Landon birthday party"
+    assert updated.intent.target_date == date(2026, 5, 24)
+
+
+def test_missing_calendar_time_only_reply_still_needs_date():
+    resolution = parse_text_to_intent("add tennis 17:00-18:00", lambda text: {"error": "bad"})
+
+    assert resolution.status == ResolutionStatus.NEEDS_CLARIFICATION
+    assert resolution.missing_fields == ["target_calendar", "target_date"]

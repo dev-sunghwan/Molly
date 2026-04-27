@@ -3,6 +3,8 @@ intent_adapter.py — Translate existing Molly command dicts into shared intents
 """
 from __future__ import annotations
 
+from datetime import date
+
 import config
 import utils
 from intent_models import (
@@ -20,7 +22,7 @@ def parse_text_to_intent(text: str, parser) -> IntentResolution:
     """Parse raw text with an existing parser and translate it into a shared intent."""
     command = parser(text)
     if "error" in command:
-        inferred = infer_intent_from_text(text)
+        inferred = infer_intent_from_text(text, parse_error=command["error"])
         if inferred is not None:
             return inferred
     return command_to_intent(command, raw_input=text)
@@ -207,15 +209,57 @@ def _clarification_prompt(missing_fields: list[str]) -> str:
     return "Molly needs more information before it can continue."
 
 
-def infer_intent_from_text(text: str) -> IntentResolution | None:
+def infer_intent_from_text(text: str, parse_error: str | None = None) -> IntentResolution | None:
     """
-    Best-effort inference for simple command-like requests that are missing the
-    target calendar. This provides the Phase 2 clarification entry point.
+    Best-effort inference for command-like write requests. Molly should prefer
+    clarification over silent guessing when a write command is incomplete.
     """
     stripped = text.strip()
     lower = stripped.lower()
     if lower.startswith("add "):
+        add_resolution = _infer_add_with_known_calendar_for_clarification(stripped)
+        if add_resolution is not None:
+            return add_resolution
         return _infer_add_without_calendar(stripped)
+    return None
+
+
+def _infer_add_with_known_calendar_for_clarification(text: str) -> IntentResolution | None:
+    rest = text[4:].strip()
+    tokens = rest.split()
+    if len(tokens) < 2:
+        return None
+
+    calendar = tokens[0].lower()
+    if calendar not in config.CALENDARS:
+        return None
+
+    last = tokens[-1]
+    last_is_time = utils.parse_time(last) is not None
+    second = tokens[1]
+    second_is_date = utils.parse_date(second.lower()) is not None or _is_iso_date(second)
+
+    if len(tokens) == 3 and last_is_time and second_is_date:
+        target_date = utils.parse_date(second.lower())
+        if target_date is None and _is_iso_date(second):
+            target_date = date.fromisoformat(second)
+        start_time, end_time = utils.parse_time(last)
+        intent = ScheduleIntent(
+            action=IntentAction.CREATE_EVENT,
+            source=IntentSource.TELEGRAM_COMMAND,
+            raw_input=text,
+            target_calendar=calendar,
+            target_date=target_date,
+            time_range=TimeRange(start=start_time, end=end_time),
+            metadata={"all_day": False, "inferred_missing_title": True},
+        )
+        return IntentResolution(
+            status=ResolutionStatus.NEEDS_CLARIFICATION,
+            intent=intent,
+            missing_fields=["title"],
+            clarification_prompt=_clarification_prompt(["title"]),
+        )
+
     return None
 
 
@@ -290,12 +334,14 @@ def _infer_add_without_calendar(text: str) -> IntentResolution | None:
     last_is_date = utils.parse_date(last.lower()) is not None
 
     if last_is_time:
+        missing = ["target_calendar"]
         if len(tokens) >= 3 and utils.parse_date(tokens[-2].lower()) is not None:
             event_date = utils.parse_date(tokens[-2].lower())
             title_tokens = tokens[:-2]
         else:
-            event_date = utils._today_local()
+            event_date = None
             title_tokens = tokens[:-1]
+            missing.append("target_date")
 
         start_time, end_time = utils.parse_time(last)
         intent = ScheduleIntent(
@@ -307,7 +353,12 @@ def _infer_add_without_calendar(text: str) -> IntentResolution | None:
             time_range=TimeRange(start=start_time, end=end_time),
             metadata={"all_day": False, "inferred_missing_calendar": True},
         )
-        return validate_intent(intent)
+        return IntentResolution(
+            status=ResolutionStatus.NEEDS_CLARIFICATION,
+            intent=intent,
+            missing_fields=missing,
+            clarification_prompt=_clarification_prompt(missing),
+        )
 
     if last_is_date:
         intent = ScheduleIntent(
@@ -325,10 +376,15 @@ def _infer_add_without_calendar(text: str) -> IntentResolution | None:
         source=IntentSource.TELEGRAM_FREE_TEXT,
         raw_input=text,
         title=" ".join(tokens).strip() or None,
-        target_date=utils._today_local(),
         metadata={"all_day": True, "inferred_missing_calendar": True},
     )
-    return validate_intent(intent)
+    missing = ["target_calendar", "target_date"]
+    return IntentResolution(
+        status=ResolutionStatus.NEEDS_CLARIFICATION,
+        intent=intent,
+        missing_fields=missing,
+        clarification_prompt=_clarification_prompt(missing),
+    )
 
 
 def _infer_add_without_calendar_recurring(tokens: list[str]) -> IntentResolution | None:
@@ -364,3 +420,11 @@ def _infer_add_without_calendar_recurring(tokens: list[str]) -> IntentResolution
         metadata={"all_day": time_range is None, "inferred_missing_calendar": True},
     )
     return validate_intent(intent)
+
+
+def _is_iso_date(token: str) -> bool:
+    try:
+        date.fromisoformat(token)
+        return True
+    except ValueError:
+        return False
