@@ -264,3 +264,61 @@ def test_local_backend_rejects_recurring_multiday_event(monkeypatch, tmp_path):
 
     assert message.startswith("❌ Recurring events cannot span multiple days")
     assert events == []
+
+
+def test_local_backend_can_delete_one_recurring_occurrence(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+
+    service = local_calendar_backend.authenticate()
+    local_calendar_backend.add_event(
+        service,
+        {
+            "calendar": "younha",
+            "title": "Cubs",
+            "date": utils.parse_date("13-04-2026"),
+            "start": "18:30",
+            "end": "20:00",
+            "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+        },
+    )
+
+    delete_message = local_calendar_backend.find_and_delete_event(
+        service,
+        "younha",
+        utils.parse_date("20-04-2026"),
+        "Cubs",
+    )
+
+    deleted_day = local_calendar_backend.list_events(service, utils.parse_date("20-04-2026"))
+    next_day = local_calendar_backend.list_events(service, utils.parse_date("27-04-2026"))
+
+    assert "Deleted occurrence from YounHa" in delete_message
+    assert deleted_day == []
+    assert len(next_day) == 1
+    assert next_day[0]["summary"] == "Cubs"
+
+
+def test_local_backend_recurring_occurrence_delete_requires_date(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+
+    service = local_calendar_backend.authenticate()
+    local_calendar_backend.add_event(
+        service,
+        {
+            "calendar": "younha",
+            "title": "Cubs",
+            "date": utils.parse_date("13-04-2026"),
+            "start": "18:30",
+            "end": "20:00",
+            "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+        },
+    )
+
+    delete_message = local_calendar_backend.find_and_delete_event(
+        service,
+        "younha",
+        None,
+        "Cubs",
+    )
+
+    assert "Specify a date to delete one occurrence" in delete_message

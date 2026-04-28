@@ -328,11 +328,13 @@ def find_and_delete_event(
             return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
         return f"❌ No matching event found in {cal_display} {search_desc}"
     if len(matches) > 1:
+        if target_date is None and any(match.get("recurringEventId") for match in matches):
+            return f"❌ Specify a date to delete one occurrence from a recurring event in {cal_display}."
         return _multiple_matches_message(cal_key, title, matches, action="deleted")
 
     match = matches[0]
     if match.get("recurringEventId"):
-        return f"❌ Recurring event deletion by single occurrence is not supported yet in the local backend. Use delete all."
+        return delete_recurring_occurrence(service, cal_key, target_date, title, start_time=start_time)
 
     row = match["_source_row"]
     with _connect() as conn:
@@ -582,6 +584,9 @@ def _expand_recurring_row(row: sqlite3.Row, start_date: date, end_date: date, re
     while cursor <= end_date:
         if cursor >= first_date:
             override = overrides.get(cursor.isoformat())
+            if override and override.get("deleted"):
+                cursor += timedelta(days=7)
+                continue
             occurrences.append(_row_to_event(row, cursor, recurring=True, override=override))
         cursor += timedelta(days=7)
     return occurrences
@@ -714,6 +719,70 @@ def _sort_key(ev: dict) -> str:
     return start.get("dateTime", start.get("date", ""))
 
 
+def delete_recurring_occurrence(
+    service: LocalCalendarService,
+    cal_key: str,
+    target_date: date | None,
+    title: str | None,
+    start_time: str | None = None,
+) -> str:
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
+    if target_date is None:
+        return f"❌ Specify a date to delete one occurrence from a recurring event in {cal_display}."
+
+    matches = _expanded_matches(cal_key, title, target_date, start_time=start_time)
+    if not matches:
+        if title and start_time:
+            return f"❌ No event '{title}' at {start_time} found in {cal_display} on {target_date.strftime('%d-%m-%Y')}"
+        if title:
+            return f"❌ No event '{title}' found in {cal_display} on {target_date.strftime('%d-%m-%Y')}"
+        return f"❌ No matching event found in {cal_display} on {target_date.strftime('%d-%m-%Y')}"
+    if len(matches) > 1:
+        return _multiple_matches_message(cal_key, title or '(no title)', matches, action="deleted")
+
+    match = matches[0]
+    if not match.get("recurringEventId"):
+        return find_and_delete_event(service, cal_key, target_date, title, start_time=start_time)
+
+    row = match["_source_row"]
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO local_event_overrides (
+                event_id, occurrence_date, summary, start_time, end_time, all_day, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, occurrence_date) DO UPDATE SET
+                summary=excluded.summary,
+                start_time=excluded.start_time,
+                end_time=excluded.end_time,
+                all_day=excluded.all_day,
+                metadata_json=excluded.metadata_json,
+                created_at=excluded.created_at
+            """,
+            (
+                row["id"],
+                target_date.isoformat(),
+                row["summary"],
+                row["start_time"],
+                row["end_time"],
+                1 if bool(row["all_day"]) else 0,
+                json.dumps({"deleted": True}, ensure_ascii=True, sort_keys=True),
+                datetime.now(utils.TZ).isoformat(),
+            ),
+        )
+
+    deleted_title = title or match.get("summary") or row["summary"] or '(no title)'
+    if row["start_time"] and row["end_time"]:
+        time_disp = f"{row['start_time']}–{row['end_time']}"
+    else:
+        time_disp = "All day"
+    return (
+        f"Deleted occurrence from {cal_display}:\n"
+        f"  {deleted_title}\n"
+        f"  {utils.format_short_day_date(target_date)}  {time_disp}"
+    )
+
+
 def set_recurring_occurrence_override(
     service: LocalCalendarService,
     cal_key: str,
@@ -783,11 +852,13 @@ def _load_overrides(event_id: str) -> dict[str, dict]:
         ).fetchall()
     result = {}
     for row in rows:
+        metadata = json.loads(row["metadata_json"] or '{}')
         result[row["occurrence_date"]] = {
             "summary": row["summary"],
             "start_time": row["start_time"],
             "end_time": row["end_time"],
             "all_day": row["all_day"],
-            "metadata": json.loads(row["metadata_json"] or '{}'),
+            "metadata": metadata,
+            "deleted": bool(metadata.get("deleted")),
         }
     return result
