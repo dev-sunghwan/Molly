@@ -49,6 +49,12 @@ def add_event(service: LocalCalendarService, cmd: dict) -> str:
     start_str = cmd.get("start")
     end_str = cmd.get("end")
 
+    if cmd.get("recurrence") and end_date != cmd["date"]:
+        return (
+            "❌ Recurring events cannot span multiple days in the local calendar.\n"
+            "Use the first occurrence date only for weekly recurring events."
+        )
+
     with _connect() as conn:
         existing = _find_exact_duplicate(
             conn=conn,

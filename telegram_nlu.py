@@ -137,6 +137,19 @@ def _resolution_from_draft(
 
 
 def _parse_view_request(text: str, lowered: str) -> IntentResolution | None:
+    explicit_month_command = None
+    if any(keyword in lowered for keyword in ["schedule", "calendar", "show me", "everything for"]):
+        explicit_month_command = _normalize_explicit_month_command(lowered)
+    if explicit_month_command is not None:
+        return _ready(
+            ScheduleIntent(
+                action=IntentAction.VIEW_RANGE,
+                source=IntentSource.TELEGRAM_FREE_TEXT,
+                raw_input=text,
+                metadata={"command": explicit_month_command, "nlu": "telegram"},
+            )
+        )
+
     if any(phrase in text for phrase in ["오늘 일정", "오늘 스케줄"]) or any(
         phrase in lowered for phrase in ["today schedule", "today calendar", "what's on today"]
     ):
@@ -211,7 +224,6 @@ def _parse_view_request(text: str, lowered: str) -> IntentResolution | None:
 
     return None
 
-
 def _parse_create_request(text: str, lowered: str) -> IntentResolution | None:
     if not _looks_like_create_request(text, lowered):
         return None
@@ -255,7 +267,6 @@ def _looks_like_create_request(text: str, lowered: str) -> bool:
         "잡아",
         "잡아줘",
         "예약",
-        "schedule",
         "add ",
         "book ",
         "put ",
@@ -330,8 +341,50 @@ def _normalize_range_command(value: str) -> str | None:
         "다음달": "month_next",
         "다음 달": "month_next",
     }
-    return mapping.get(lowered)
+    mapped = mapping.get(lowered)
+    if mapped is not None:
+        return mapped
+    return _normalize_explicit_month_command(lowered)
 
+
+def _normalize_explicit_month_command(lowered: str) -> str | None:
+    cleaned = re.sub(r"[^a-z0-9 ]+", " ", lowered)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return None
+
+    month_match = re.search(
+        r"(january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+(\d{4}))?",
+        cleaned,
+    )
+    if month_match is None:
+        return None
+
+    month_numbers = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    }
+    month_name = month_match.group(1)
+    year_text = month_match.group(2)
+    month_number = month_numbers[month_name]
+    today = utils._today_local()
+    target_year = int(year_text) if year_text else today.year
+    month_delta = (target_year - today.year) * 12 + (month_number - today.month)
+    if month_delta == 0:
+        return "month"
+    if month_delta == 1:
+        return "month_next"
+    return None
 
 def _extract_natural_time(text: str) -> TimeRange | None:
     hhmm_match = re.search(r"\b(\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)\b", text)

@@ -237,3 +237,30 @@ def test_local_backend_recurring_occurrence_override_applies_only_to_one_date(mo
     assert special[0]["location"] == "Green Lane Primary School"
     assert len(normal) == 1
     assert normal[0]["summary"] == "Cubs"
+
+
+def test_local_backend_rejects_recurring_multiday_event(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+
+    service = local_calendar_backend.authenticate()
+    message = local_calendar_backend.add_event(
+        service,
+        {
+            "calendar": "younha",
+            "title": "Tennis Avenue",
+            "date": utils.parse_date("30-04-2026"),
+            "end_date": utils.parse_date("31-07-2026"),
+            "start": "18:30",
+            "end": "20:00",
+            "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=TH"],
+        },
+    )
+
+    events = local_calendar_backend.list_events_range(
+        service,
+        utils.parse_date("30-04-2026"),
+        utils.parse_date("31-07-2026"),
+    )
+
+    assert message.startswith("❌ Recurring events cannot span multiple days")
+    assert events == []

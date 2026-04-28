@@ -62,6 +62,12 @@ def _create_event_resolution(payload: dict) -> IntentResolution:
             _, end_time = parsed
         time_range = TimeRange(start=start_time, end=end_time)
 
+    if recurrence and end_date is not None and end_date != target_date:
+        raise ValueError(
+            "Recurring events cannot use end_date as a series-until value. "
+            "Use a single-day recurring seed event instead."
+        )
+
     intent = ScheduleIntent(
         action=IntentAction.CREATE_EVENT,
         source=IntentSource.TELEGRAM_FREE_TEXT,

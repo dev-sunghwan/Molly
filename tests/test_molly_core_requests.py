@@ -208,3 +208,24 @@ def test_resolution_from_request_builds_view_week_intent():
     assert resolution.status == ResolutionStatus.READY
     assert resolution.intent.action == IntentAction.VIEW_RANGE
     assert resolution.intent.metadata["command"] == "week"
+
+
+def test_resolution_from_request_rejects_recurring_multiday_create_event():
+    try:
+        resolution_from_request(
+            {
+                "action": "create_event",
+                "target_calendar": "younha",
+                "title": "Tennis Avenue",
+                "target_date": "2026-04-30",
+                "end_date": "2026-07-31",
+                "start_time": "18:30",
+                "end_time": "20:00",
+                "all_day": False,
+                "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=TH"],
+            }
+        )
+    except ValueError as exc:
+        assert "Recurring events cannot use end_date" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")

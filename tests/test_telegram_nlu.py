@@ -128,6 +128,33 @@ def test_structured_draft_can_request_clarification():
     assert "target_calendar" in resolution.missing_fields
 
 
+
+
+def test_english_month_name_view_request_maps_to_next_month():
+    resolution = telegram_nlu.parse_free_text_to_intent("Show me May schedule")
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.VIEW_RANGE
+    assert resolution.intent.metadata["command"] == "month_next"
+
+
+def test_structured_draft_with_month_name_maps_to_next_month():
+    draft = ExtractedTelegramDraft(
+        action="view_range",
+        target_date_text="May",
+        confidence=0.9,
+    )
+
+    resolution = telegram_nlu.parse_free_text_to_intent(
+        "Show me May schedule",
+        extracted_draft=draft,
+    )
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.metadata["command"] == "month_next"
+
 def test_structured_draft_can_drive_view_range():
     draft = ExtractedTelegramDraft(
         action="view_range",
