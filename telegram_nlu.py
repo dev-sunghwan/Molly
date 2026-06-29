@@ -91,6 +91,91 @@ def _resolution_from_draft(
             )
         return _ready(intent)
 
+    if action == "update_event":
+        calendar = _normalize_calendar(draft.target_calendar)
+        target_date = _extract_relative_date(
+            draft.target_date_text or "",
+            (draft.target_date_text or "").lower(),
+        ) if draft.target_date_text else None
+        title = (draft.title or "").strip() or None
+        changes = {}
+        if draft.time_text:
+            time_range = _extract_natural_time(draft.time_text)
+            if time_range is not None:
+                changes["start"] = time_range.start
+                changes["end"] = time_range.end
+        if draft.updated_date_text:
+            updated_date = _extract_relative_date(
+                draft.updated_date_text,
+                draft.updated_date_text.lower(),
+            )
+            if updated_date is not None:
+                changes["date"] = updated_date
+        if draft.updated_title:
+            updated_title = draft.updated_title.strip()
+            if updated_title:
+                changes["title"] = updated_title
+
+        intent = ScheduleIntent(
+            action=IntentAction.UPDATE_EVENT,
+            source=IntentSource.TELEGRAM_FREE_TEXT,
+            raw_input=text,
+            target_calendar=calendar,
+            title=title,
+            target_date=target_date,
+            changes=changes,
+            metadata={
+                "nlu": "telegram_llm",
+                "draft_confidence": draft.confidence,
+                "draft_reasoning": draft.reasoning,
+            },
+        )
+        missing = []
+        if not intent.target_calendar:
+            missing.append("target_calendar")
+        if not intent.title:
+            missing.append("title")
+        if not intent.changes:
+            missing.append("changes")
+        if missing:
+            return IntentResolution(
+                status=ResolutionStatus.NEEDS_CLARIFICATION,
+                intent=intent,
+                missing_fields=missing,
+                clarification_prompt=_clarification_prompt(missing),
+                reason=draft.reasoning,
+            )
+        return _ready(intent)
+
+    if action == "view_daily":
+        target_date = _extract_relative_date(
+            draft.target_date_text or "",
+            (draft.target_date_text or "").lower(),
+        )
+        if target_date is None:
+            return IntentResolution(
+                status=ResolutionStatus.NEEDS_CLARIFICATION,
+                intent=ScheduleIntent(
+                    action=IntentAction.VIEW_DAILY,
+                    source=IntentSource.TELEGRAM_FREE_TEXT,
+                    raw_input=text,
+                    metadata={"nlu": "telegram_llm"},
+                ),
+                missing_fields=["target_date"],
+                clarification_prompt=_clarification_prompt(["target_date"]),
+                reason=draft.reasoning,
+            )
+        return _ready(
+            ScheduleIntent(
+                action=IntentAction.VIEW_DAILY,
+                source=IntentSource.TELEGRAM_FREE_TEXT,
+                raw_input=text,
+                target_date=target_date,
+                metadata={"command": "date", "nlu": "telegram_llm"},
+            )
+        )
+
+
     if action == "view_daily":
         target_date = _extract_relative_date(
             draft.target_date_text or "",
@@ -195,6 +280,23 @@ def _parse_view_request(text: str, lowered: str) -> IntentResolution | None:
                 source=IntentSource.TELEGRAM_FREE_TEXT,
                 raw_input=text,
                 metadata={"command": "week_next", "nlu": "telegram"},
+            )
+        )
+
+    if any(phrase in text for phrase in ["이번달 남은 일정", "이번 달 남은 일정", "남은 이번달 일정", "남은 이번 달 일정"]) or any(
+        phrase in lowered for phrase in [
+            "remaining month schedule",
+            "remaining this month schedule",
+            "rest of this month schedule",
+            "rest of this month calendar",
+        ]
+    ):
+        return _ready(
+            ScheduleIntent(
+                action=IntentAction.VIEW_RANGE,
+                source=IntentSource.TELEGRAM_FREE_TEXT,
+                raw_input=text,
+                metadata={"command": "month_remaining", "nlu": "telegram"},
             )
         )
 
@@ -329,6 +431,8 @@ def _normalize_range_command(value: str) -> str | None:
         "this week": "week",
         "next week": "week_next",
         "this month": "month",
+        "remaining month": "month_remaining",
+        "rest of this month": "month_remaining",
         "next month": "month_next",
         "오늘": "today",
         "내일": "tomorrow",
@@ -338,6 +442,10 @@ def _normalize_range_command(value: str) -> str | None:
         "다음 주": "week_next",
         "이번달": "month",
         "이번 달": "month",
+        "이번달 남은": "month_remaining",
+        "이번 달 남은": "month_remaining",
+        "남은 이번달": "month_remaining",
+        "남은 이번 달": "month_remaining",
         "다음달": "month_next",
         "다음 달": "month_next",
     }
@@ -382,8 +490,8 @@ def _normalize_explicit_month_command(lowered: str) -> str | None:
     month_delta = (target_year - today.year) * 12 + (month_number - today.month)
     if month_delta == 0:
         return "month"
-    if month_delta == 1:
-        return "month_next"
+    if month_delta >= 0:
+        return f"month:{target_year:04d}-{month_number:02d}"
     return None
 
 def _extract_natural_time(text: str) -> TimeRange | None:

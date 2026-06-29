@@ -7,24 +7,28 @@ Flow per message:
   3. Dispatch to the calendar repository or return error/usage
   4. Send reply
 """
+import atexit
+import fcntl
 import logging
+import os
 import sys
 
 from telegram import Update
+from telegram.error import Conflict as TelegramConflict
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-from calendar_repository import CalendarRepository
 import clarification_state
 import commands
 import config
-from intent_adapter import parse_text_to_intent
-from intent_models import ResolutionStatus
-from molly_core import MollyCore
 import scheduler as sched_module
 import spouse_notifications
 import state_store
 import telegram_extractor_provider
 import telegram_nlu
+from calendar_repository import CalendarRepository
+from intent_adapter import parse_text_to_intent
+from intent_models import ResolutionStatus
+from molly_core import MollyCore
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -41,6 +45,44 @@ log = logging.getLogger(__name__)
 # Calendar repository — initialised in main() before polling starts
 calendar_repo = None
 core = None
+LOCK_PATH = config.ROOT / ".molly_bot.lock"
+_lock_handle = None
+
+
+def _ensure_legacy_bot_enabled() -> None:
+    if config.LEGACY_TELEGRAM_BOT_ENABLED:
+        return
+    raise SystemExit(
+        "[Molly] bot.py is the legacy direct Telegram polling runtime and is disabled by default.\n"
+        "Production Telegram traffic should use OpenClaw. To run this fallback explicitly, set "
+        "MOLLY_LEGACY_TELEGRAM_BOT_ENABLED=1."
+    )
+
+
+def _acquire_single_instance_lock() -> None:
+    global _lock_handle
+    lock_handle = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise SystemExit("[Molly] Another local bot.py instance is already running.") from exc
+    lock_handle.seek(0)
+    lock_handle.truncate()
+    lock_handle.write(str(os.getpid()))
+    lock_handle.flush()
+    _lock_handle = lock_handle
+
+    def _release_lock() -> None:
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            lock_handle.close()
+        except Exception:
+            pass
+
+    atexit.register(_release_lock)
 
 
 # ── /help handler ────────────────────────────────────────────────────────────
@@ -129,6 +171,8 @@ async def handle_message(update: Update, context) -> None:
 
 def main():
     log.info("Molly starting up...")
+    _ensure_legacy_bot_enabled()
+    _acquire_single_instance_lock()
 
     # Validate config before doing anything else
     config.validate()
@@ -166,7 +210,11 @@ def main():
     )
 
     log.info("Molly is running. Waiting for Telegram messages...")
-    app.run_polling()
+    try:
+        app.run_polling()
+    except TelegramConflict:
+        log.error("Telegram polling conflict detected. Another bot instance is using the same token.")
+        raise
 
     try:
         scheduler.shutdown(wait=False)

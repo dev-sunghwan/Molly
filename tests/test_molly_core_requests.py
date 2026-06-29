@@ -210,6 +210,19 @@ def test_resolution_from_request_builds_view_week_intent():
     assert resolution.intent.metadata["command"] == "week"
 
 
+def test_resolution_from_request_builds_view_remaining_month_intent():
+    resolution = resolution_from_request(
+        {
+            "action": "view",
+            "scope": "month_remaining",
+        }
+    )
+
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.VIEW_RANGE
+    assert resolution.intent.metadata["command"] == "month_remaining"
+
+
 def test_resolution_from_request_rejects_recurring_multiday_create_event():
     try:
         resolution_from_request(
@@ -227,5 +240,99 @@ def test_resolution_from_request_rejects_recurring_multiday_create_event():
         )
     except ValueError as exc:
         assert "Recurring events cannot use end_date" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_non_object_payload():
+    try:
+        resolution_from_request(["not", "an", "object"])
+    except ValueError as exc:
+        assert "JSON object" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_unsafe_execution_fields():
+    try:
+        resolution_from_request(
+            {
+                "action": "create_event",
+                "target_calendar": "younha",
+                "title": "Tennis",
+                "target_date": "2026-04-16",
+                "start_time": "17:00",
+                "end_time": "18:00",
+                "all_day": False,
+                "python": "import sqlite3",
+            }
+        )
+    except ValueError as exc:
+        assert "Unsupported field" in str(exc) or "Unsafe field" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_unknown_fields():
+    try:
+        resolution_from_request(
+            {
+                "action": "search",
+                "query": "Tennis",
+                "calendar_id": "secret",
+            }
+        )
+    except ValueError as exc:
+        assert "Unsupported field" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_invalid_all_day_type():
+    try:
+        resolution_from_request(
+            {
+                "action": "create_event",
+                "target_calendar": "family",
+                "title": "Trip",
+                "target_date": "2026-04-16",
+                "all_day": "false",
+            }
+        )
+    except ValueError as exc:
+        assert "all_day must be a boolean" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_invalid_limit():
+    try:
+        resolution_from_request(
+            {
+                "action": "view",
+                "scope": "upcoming",
+                "limit": 100,
+            }
+        )
+    except ValueError as exc:
+        assert "limit must be between 1 and 50" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolution_from_request_rejects_unsupported_update_change_fields():
+    try:
+        resolution_from_request(
+            {
+                "action": "update_event",
+                "target_calendar": "younha",
+                "title": "Tennis",
+                "changes": {
+                    "shell": "rm -rf data",
+                },
+            }
+        )
+    except ValueError as exc:
+        assert "Unsupported change field" in str(exc) or "Unsafe change field" in str(exc)
     else:
         raise AssertionError("Expected ValueError")

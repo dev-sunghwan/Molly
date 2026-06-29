@@ -1,0 +1,9 @@
+[Unit]
+Description=Molly Google Sync Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/sunghwan/projects/Molly
+ExecStart=/home/sunghwan/projects/Molly/.venv/bin/python /home/sunghwan/projects/Molly/scripts/run_google_sync_worker.py --once --limit 5 --max-attempts 5

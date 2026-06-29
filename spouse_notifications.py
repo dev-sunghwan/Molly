@@ -71,7 +71,12 @@ def build_spouse_notification(
     if intent.action == IntentAction.CREATE_EVENT:
         return f"{actor_label}이 [{calendar_label}] {schedule_summary} 일정을 추가했어요."
     if intent.action == IntentAction.UPDATE_EVENT:
-        return f"{actor_label}이 [{calendar_label}] {schedule_summary} 일정을 수정했어요."
+        updated_summary = _updated_schedule_summary(intent)
+        return (
+            f"{actor_label}이 [{calendar_label}] 일정을 수정했어요.\n"
+            f"기존: {schedule_summary}\n"
+            f"변경: {updated_summary}"
+        )
     if intent.action == IntentAction.DELETE_EVENT:
         return f"{actor_label}이 [{calendar_label}] {schedule_summary} 일정을 삭제했어요."
     if intent.action == IntentAction.DELETE_SERIES:
@@ -146,6 +151,34 @@ def _calendar_label(value: str | None) -> str:
     label = utils.format_calendar_label(event)
     return label or value
 
+
+def _updated_schedule_summary(intent) -> str:
+    changes = dict(getattr(intent, "changes", {}) or {})
+    title = changes.get("title", intent.title) or "(no title)"
+    target_date = changes.get("date", intent.target_date)
+    time_range = intent.time_range
+    start_time = changes.get("start")
+    end_time = changes.get("end")
+    if start_time and end_time:
+        return _schedule_summary_parts(title, target_date, start_time, end_time)
+    if time_range is not None:
+        return _schedule_summary_parts(title, target_date, time_range.start, time_range.end)
+    if target_date:
+        return f"{title} ({utils.format_short_day_date(target_date)})"
+    return title
+
+
+def _schedule_summary_parts(
+    title: str,
+    target_date,
+    start_time: str | None,
+    end_time: str | None,
+) -> str:
+    if target_date and start_time and end_time:
+        return f"{title} ({utils.format_short_day_date(target_date)} {start_time}–{end_time})"
+    if target_date:
+        return f"{title} ({utils.format_short_day_date(target_date)})"
+    return title
 
 
 def _schedule_summary(intent) -> str:

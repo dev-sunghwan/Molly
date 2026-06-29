@@ -5,27 +5,55 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import uuid
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from calendar_repository import CalendarRepository
+from telegram import Bot
+
+import commands
 import config
 import gmail_client
 import gmail_confirmation
 import inbox_processor
-from molly_core import MollyCore
-from intent_models import ResolutionStatus
-import commands
-from intent_adapter import command_to_intent
-from molly_core_requests import resolution_from_request
 import state_store
 import utils
-from telegram import Bot
+from calendar_repository import CalendarRepository
+from intent_adapter import command_to_intent
+import telegram_nlu
+from intent_models import ResolutionStatus
+from molly_core import MollyCore
+from molly_core_requests import resolution_from_request
+
+_MUTATING_PAYLOAD_ACTIONS = {
+    "create_event",
+    "update_event",
+    "delete_event",
+    "move_event",
+    "delete_series",
+}
+_REQUEST_ID_REQUIRED_SUBCOMMANDS = {
+    "command",
+    "create",
+    "delete",
+    "move",
+    "update",
+}
+
+
+def _add_journal_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--request-id", help="Stable inbound request id for command journaling")
+    parser.add_argument("--source", default="openclaw", help="Inbound source, e.g. telegram, slack, openclaw")
+    parser.add_argument("--source-message-id")
+    parser.add_argument("--source-user-id")
+    parser.add_argument("--source-user-name")
+    parser.add_argument("--source-channel-id")
 
 
 def main() -> None:
@@ -44,6 +72,7 @@ def main() -> None:
     create_parser.add_argument("--request-source", default="openclaw_exec_tool")
     create_parser.add_argument("--actor-user-id", type=int)
     create_parser.add_argument("--actor-name")
+    _add_journal_args(create_parser)
     create_parser.add_argument(
         "--recurrence",
         action="append",
@@ -64,17 +93,20 @@ def main() -> None:
     view_parser.add_argument("--raw-input", default="")
     view_parser.add_argument("--actor-user-id", type=int)
     view_parser.add_argument("--actor-name")
+    _add_journal_args(view_parser)
 
     command_parser = subparsers.add_parser("command", help="Execute a canonical Molly core command directly")
     command_parser.add_argument("--text", required=True, help="Canonical Molly command text, e.g. 'today', 'week', 'upcoming YounHa 5'")
     command_parser.add_argument("--actor-user-id", type=int)
     command_parser.add_argument("--actor-name")
+    _add_journal_args(command_parser)
 
     search_parser = subparsers.add_parser("search", help="Search events")
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--raw-input", default="")
     search_parser.add_argument("--actor-user-id", type=int)
     search_parser.add_argument("--actor-name")
+    _add_journal_args(search_parser)
 
     delete_parser = subparsers.add_parser("delete", help="Delete one event")
     delete_parser.add_argument("--calendar", required=True)
@@ -83,6 +115,7 @@ def main() -> None:
     delete_parser.add_argument("--raw-input", default="")
     delete_parser.add_argument("--actor-user-id", type=int)
     delete_parser.add_argument("--actor-name")
+    _add_journal_args(delete_parser)
 
     move_parser = subparsers.add_parser("move", help="Move one event between calendars")
     move_parser.add_argument("--from-calendar", required=True)
@@ -92,6 +125,7 @@ def main() -> None:
     move_parser.add_argument("--raw-input", default="")
     move_parser.add_argument("--actor-user-id", type=int)
     move_parser.add_argument("--actor-name")
+    _add_journal_args(move_parser)
 
     update_parser = subparsers.add_parser("update", help="Update one event")
     update_parser.add_argument("--calendar", required=True)
@@ -104,6 +138,7 @@ def main() -> None:
     update_parser.add_argument("--raw-input", default="")
     update_parser.add_argument("--actor-user-id", type=int)
     update_parser.add_argument("--actor-name")
+    _add_journal_args(update_parser)
 
     gmail_process_parser = subparsers.add_parser("gmail-process", help="Process Gmail inbox candidates")
     gmail_process_parser.add_argument("--limit", type=int, default=5)
@@ -136,21 +171,220 @@ def main() -> None:
         return
 
     if args.subcommand == "command":
-        result = _execute_command_text(
-            args.text,
-            actor_user_id=getattr(args, "actor_user_id", None),
-            actor_name=getattr(args, "actor_name", None),
+        request_id = _journal_args(
+            args,
+            raw_text=args.text,
+            raw_payload=_raw_payload_from_args(args),
+        )
+        result = _execute_with_journal(
+            request_id,
+            lambda: _execute_command_text(
+                args.text,
+                actor_user_id=getattr(args, "actor_user_id", None),
+                actor_name=getattr(args, "actor_name", None),
+            ),
+            explicit_request_id=args.request_id,
+            request_id_required=args.subcommand in _REQUEST_ID_REQUIRED_SUBCOMMANDS,
         )
         print(json.dumps(result, ensure_ascii=False))
         return
 
     payload = _payload_from_args(args)
-    result = _execute_payload(
-        payload,
-        actor_user_id=getattr(args, "actor_user_id", None),
-        actor_name=getattr(args, "actor_name", None),
+    request_id = _journal_args(
+        args,
+        raw_text=payload.get("raw_input"),
+        raw_payload=payload,
+    )
+    result = _execute_with_journal(
+        request_id,
+        lambda: _execute_payload(
+            payload,
+            actor_user_id=getattr(args, "actor_user_id", None),
+            actor_name=getattr(args, "actor_name", None),
+        ),
+        structured_payload=payload,
+        explicit_request_id=args.request_id,
+        request_id_required=args.subcommand in _REQUEST_ID_REQUIRED_SUBCOMMANDS,
     )
     print(json.dumps(result, ensure_ascii=False))
+
+
+def _journal_enabled() -> bool:
+    return os.getenv("MOLLY_COMMAND_JOURNAL_ENABLED", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _raw_payload_from_args(args: argparse.Namespace) -> dict:
+    return {
+        key: value
+        for key, value in vars(args).items()
+        if key
+        not in {
+            "request_id",
+            "source",
+            "source_message_id",
+            "source_user_id",
+            "source_user_name",
+            "source_channel_id",
+        }
+    }
+
+
+def _journal_args(
+    args: argparse.Namespace,
+    *,
+    raw_text: str | None,
+    raw_payload: dict,
+) -> str | None:
+    if not _journal_enabled():
+        return None
+
+    request_id = args.request_id or f"molly-cli-{uuid.uuid4()}"
+    try:
+        state_store.init_db()
+        state_store.record_inbound_command(
+            request_id=request_id,
+            source=args.source,
+            source_message_id=args.source_message_id,
+            source_user_id=args.source_user_id
+            or _optional_string(getattr(args, "actor_user_id", None)),
+            source_user_name=args.source_user_name
+            or _optional_string(getattr(args, "actor_name", None)),
+            source_channel_id=args.source_channel_id,
+            raw_text=raw_text,
+            raw_payload=raw_payload,
+        )
+        return request_id
+    except Exception as exc:
+        print(
+            f"[molly_schedule_action] command journal write failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _execute_with_journal(
+    request_id: str | None,
+    runner,
+    *,
+    structured_payload: dict | None = None,
+    explicit_request_id: str | None = None,
+    request_id_required: bool = False,
+) -> dict:
+    completed_result = _completed_result_for_request(request_id)
+    if completed_result is not None:
+        return completed_result
+
+    try:
+        _enforce_request_id_policy(
+            explicit_request_id,
+            structured_payload=structured_payload,
+            request_id_required=request_id_required,
+        )
+        _update_journal_best_effort(request_id, "parsing")
+        if structured_payload is not None:
+            _update_journal_best_effort(
+                request_id,
+                "validated",
+                structured_payload=structured_payload,
+            )
+        _update_journal_best_effort(request_id, "executing")
+        result = runner()
+    except ValueError as exc:
+        _update_journal_best_effort(
+            request_id,
+            "rejected",
+            validation_error=str(exc),
+            execution_result={"success": False, "error": f"{type(exc).__name__}: {exc}"},
+        )
+        raise
+    except Exception as exc:
+        _update_journal_best_effort(
+            request_id,
+            "failed",
+            execution_result={"success": False, "error": f"{type(exc).__name__}: {exc}"},
+        )
+        raise
+
+    _update_journal_best_effort(
+        request_id,
+        "executed" if result.get("success") else "failed",
+        execution_result=result,
+    )
+    return result
+
+
+def _enforce_request_id_policy(
+    explicit_request_id: str | None,
+    *,
+    structured_payload: dict | None,
+    request_id_required: bool,
+) -> None:
+    if not config.REQUIRE_REQUEST_ID_FOR_MUTATIONS:
+        return
+    action = str((structured_payload or {}).get("action") or "")
+    requires_id = request_id_required or action in _MUTATING_PAYLOAD_ACTIONS
+    if not requires_id:
+        return
+    if explicit_request_id:
+        return
+    raise ValueError(
+        "Stable request_id is required for mutating Molly requests when "
+        "MOLLY_REQUIRE_REQUEST_ID_FOR_MUTATIONS=1"
+    )
+
+
+def _completed_result_for_request(request_id: str | None) -> dict | None:
+    if request_id is None or not _journal_enabled():
+        return None
+    try:
+        stored = state_store.get_command_by_request_id(request_id)
+    except Exception as exc:
+        print(
+            f"[molly_schedule_action] command journal replay check failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    if stored is None or stored["status"] != "executed":
+        return None
+    result = stored.get("execution_result")
+    return result if isinstance(result, dict) else None
+
+
+def _update_journal_best_effort(
+    request_id: str | None,
+    status: str,
+    *,
+    structured_payload: dict | None = None,
+    validation_error: str | None = None,
+    execution_result: dict | None = None,
+) -> None:
+    if request_id is None or not _journal_enabled():
+        return
+    try:
+        state_store.update_command_status(
+            request_id,
+            status,
+            structured_payload=structured_payload,
+            validation_error=validation_error,
+            execution_result=execution_result,
+        )
+    except Exception as exc:
+        print(
+            f"[molly_schedule_action] command journal update failed: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+
+def _optional_string(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _payload_from_args(args: argparse.Namespace) -> dict:
@@ -422,12 +656,16 @@ def _execute_command_text(
 
     resolution = command_to_intent(command, raw_input=text)
     if resolution.status != ResolutionStatus.READY:
-        message = resolution.clarification_prompt or resolution.reason or "❌ Molly could not resolve that command"
-        return {
-            "success": False,
-            "action": resolution.intent.action.value,
-            "message": message,
-        }
+        natural_language_resolution = telegram_nlu.parse_free_text_to_intent(text)
+        if natural_language_resolution is not None:
+            resolution = natural_language_resolution
+        else:
+            message = resolution.clarification_prompt or resolution.reason or "❌ Molly could not resolve that command"
+            return {
+                "success": False,
+                "action": resolution.intent.action.value,
+                "message": message,
+            }
 
     message = core.execute_resolution(resolution, user_id=actor_user_id)
     success = not message.startswith("❌")

@@ -12,6 +12,8 @@ molly.log
 backups/
 data/*.db
 data/*.json
+*.db
+*.sqlite
 
 # Python
 __pycache__/

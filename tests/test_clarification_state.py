@@ -62,3 +62,28 @@ def test_missing_calendar_time_only_reply_still_needs_date():
 
     assert resolution.status == ResolutionStatus.NEEDS_CLARIFICATION
     assert resolution.missing_fields == ["target_calendar", "target_date"]
+
+
+def test_pending_clarification_accepts_cross_day_end_reply():
+    resolution = parse_text_to_intent("add Haneul 16-05-2026 09:00-10:00", commands.parse)
+    updated_intent = resolution.intent
+    updated_intent.title = "Beavers camp"
+    updated_resolution = clarification_state.IntentResolution(
+        status=ResolutionStatus.NEEDS_CLARIFICATION,
+        intent=updated_intent,
+        missing_fields=["target_date"],
+        clarification_prompt="어떤 날짜로 넣을까요?",
+    )
+    clarification_state.set_pending(123, updated_resolution)
+
+    updated = clarification_state.apply_reply(123, "Can it end on 17 May 11:30am")
+
+    assert updated is not None
+    assert updated.status == ResolutionStatus.READY
+    assert updated.intent.target_calendar == "haneul"
+    assert updated.intent.target_date == date(2026, 5, 16)
+    assert updated.intent.date_range is not None
+    assert updated.intent.date_range.end == date(2026, 5, 17)
+    assert updated.intent.time_range is not None
+    assert updated.intent.time_range.start == "09:00"
+    assert updated.intent.time_range.end == "11:30"

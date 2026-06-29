@@ -38,6 +38,8 @@
 3. 요청 정보가 충분하면 바로 Molly fast-path CLI를 실행한다
 4. 정보가 부족하면 필요한 질문만 짧게 한다
 5. 실행 결과는 짧고 분명하게 보고한다
+6. routine calendar request는 Molly CLI 한 번 실행 후 `message`를 그대로 반환한다
+7. create/update/delete/move는 가능한 한 canonical `command`가 아니라 명시적 fast-path subcommand를 쓴다
 
 즉 scheduling mode에서는:
 
@@ -45,6 +47,34 @@
 - "충분히 안전하게 빨리 실행하는 것"
 
 이 우선이다.
+
+## Structured JSON 경계
+
+OpenClaw/LLM은 Molly Core에 직접 Python, shell, SQL, DB write 지시를 넘기면 안 된다.
+
+허용되는 출력은 Molly가 정의한 scheduling command JSON 또는 그 JSON을 인자로 만드는 fast-path CLI 호출뿐이다.
+
+Molly Python validator가 실행 가능 여부를 최종 결정한다. 다음과 같은 필드는 요청 JSON에 포함하지 않는다.
+
+- `python`
+- `shell`
+- `sql`
+- `exec`
+- `eval`
+- `tool_call`
+- `function_call`
+- `command`
+
+허용 action은 다음으로 제한한다.
+
+- `create_event`
+- `view`
+- `search`
+- `delete_event`
+- `move_event`
+- `update_event`
+
+알 수 없는 action이나 action별 schema에 없는 field는 Molly Core에서 reject된다.
 
 ## Clarification 규칙
 
@@ -80,14 +110,45 @@
 기본 명령 표면은 다음이다.
 
 ```bash
-./.venv/bin/python scripts/molly_schedule_action.py command --text "today"
-./.venv/bin/python scripts/molly_schedule_action.py command --text "week"
-./.venv/bin/python scripts/molly_schedule_action.py create ...
-./.venv/bin/python scripts/molly_schedule_action.py view ...
-./.venv/bin/python scripts/molly_schedule_action.py search ...
-./.venv/bin/python scripts/molly_schedule_action.py update ...
-./.venv/bin/python scripts/molly_schedule_action.py delete ...
+./.venv/bin/python scripts/molly_schedule_action.py command --text "today" --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "week" --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py create ... --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py view ... --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py search ... --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py update ... --request-id "<stable-source-message-id>"
+./.venv/bin/python scripts/molly_schedule_action.py delete ... --request-id "<stable-source-message-id>"
 ```
+
+Routine scheduling request에서는 사전 진단용 `ps`, `status`, 파일 읽기, memory search, docs lookup을 하지 않는다. 이런 작업은 Slack/admin debug에서만 수행한다.
+
+## Request ID 규칙
+
+Telegram/Slack/OpenClaw에서 들어온 scheduling 요청은 가능한 한 항상 stable request id를 Molly CLI에 전달한다.
+
+원칙:
+
+- LLM이 `request_id`를 새로 만들거나 추측하지 않는다.
+- OpenClaw gateway/runtime metadata의 message id, chat/channel id, thread id 등을 조합해 stable id를 만든다.
+- 같은 사용자 메시지를 재처리할 때 같은 `request_id`가 전달되어야 한다.
+- mutation 요청에는 특히 반드시 `--request-id`를 붙인다.
+
+권장 형식:
+
+- Telegram: `telegram:<chat_id>:<message_id>`
+- Slack: `slack:<channel_id>:<ts>`
+- OpenClaw internal retry: 원본 Telegram/Slack id를 그대로 재사용
+
+추가 metadata가 있으면 함께 전달한다.
+
+```bash
+--request-id "telegram:<chat_id>:<message_id>" \
+--source telegram \
+--source-message-id "<message_id>" \
+--source-user-id "<telegram_user_id>" \
+--source-channel-id "<chat_id>"
+```
+
+`MOLLY_REQUIRE_REQUEST_ID_FOR_MUTATIONS=1`이 켜진 환경에서는 create/update/delete/move 같은 mutation 요청이 stable request id 없이 들어오면 Molly가 실행하지 않고 reject한다.
 
 ## 액션별 실행 예시
 
@@ -100,7 +161,10 @@
   --date 2026-04-17 \
   --start 18:00 \
   --end 19:00 \
-  --raw-input "내일 오후 6시에 윤하 테니스 넣어줘"
+  --raw-input "내일 오후 6시에 윤하 테니스 넣어줘" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram \
+  --source-message-id "<message_id>"
 ```
 
 ### 2. 일정 조회
@@ -108,15 +172,21 @@
 simple read는 canonical command passthrough를 우선한다.
 
 ```bash
-./.venv/bin/python scripts/molly_schedule_action.py command --text "today"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "today" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ```bash
-./.venv/bin/python scripts/molly_schedule_action.py command --text "week"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "week" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ```bash
-./.venv/bin/python scripts/molly_schedule_action.py command --text "upcoming Family 10"
+./.venv/bin/python scripts/molly_schedule_action.py command --text "upcoming Family 10" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 구조화된 view bridge는 날짜 지정이나 surface 제약이 있을 때 보조적으로 쓴다.
@@ -125,7 +195,9 @@ simple read는 canonical command passthrough를 우선한다.
 ./.venv/bin/python scripts/molly_schedule_action.py view \
   --scope date \
   --date 2026-04-18 \
-  --raw-input "4월 18일 일정 보여줘"
+  --raw-input "4월 18일 일정 보여줘" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ### 3. 일정 검색
@@ -133,7 +205,9 @@ simple read는 canonical command passthrough를 우선한다.
 ```bash
 ./.venv/bin/python scripts/molly_schedule_action.py search \
   --query "Beavers" \
-  --raw-input "Beavers 일정 찾아줘"
+  --raw-input "Beavers 일정 찾아줘" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ### 4. 일정 수정
@@ -145,7 +219,9 @@ simple read는 canonical command passthrough를 우선한다.
   --date 2026-04-17 \
   --start 19:00 \
   --end 20:00 \
-  --raw-input "윤하 테니스 내일 7시로 바꿔줘"
+  --raw-input "윤하 테니스 내일 7시로 바꿔줘" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ### 5. 일정 삭제
@@ -155,7 +231,9 @@ simple read는 canonical command passthrough를 우선한다.
   --calendar family \
   --title "Costco" \
   --date 2026-04-18 \
-  --raw-input "가족 Costco 일정 지워줘"
+  --raw-input "가족 Costco 일정 지워줘" \
+  --request-id "telegram:<chat_id>:<message_id>" \
+  --source telegram
 ```
 
 ## 응답 스타일

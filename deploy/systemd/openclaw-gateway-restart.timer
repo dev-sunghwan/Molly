@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart OpenClaw Gateway daily
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=openclaw-gateway-restart.service
+
+[Install]
+WantedBy=timers.target

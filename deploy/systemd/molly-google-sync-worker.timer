@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Molly Google Sync Worker every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=molly-google-sync-worker.service
+
+[Install]
+WantedBy=timers.target

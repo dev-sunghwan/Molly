@@ -64,7 +64,7 @@ def test_check_reminders_uses_override_summary_and_metadata(monkeypatch, tmp_pat
     assert len(bot.messages) == 2
     text = bot.messages[0]["text"]
     assert "Cubs @ Green Lane Primary School" in text
-    assert "[YounHa]" in text
+    assert "[윤하]" in text
     assert "18:30" in text
     assert "Green Lane Primary School" in text
     assert "This week only" in text

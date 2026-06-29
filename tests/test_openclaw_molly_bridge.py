@@ -2,8 +2,8 @@ from pathlib import Path
 
 from openclaw_molly_bridge import (
     _parse_json_output,
-    build_exec_tool_command,
     build_create_event_prompt,
+    build_exec_tool_command,
     run_create_event_bridge,
 )
 
@@ -30,15 +30,23 @@ def test_run_create_event_bridge_executes_payload():
     def fake_execute(payload: dict) -> dict:
         assert payload["target_calendar"] == "younha"
         assert payload["action"] == "create_event"
+        assert payload["request_id"] == "telegram:chat-1:msg-2"
         return {"success": True, "action": "create_event", "message": "ok"}
 
     result = run_create_event_bridge(
         "내일 오후 5시에 윤하 테니스 넣어줘",
+        request_id="telegram:chat-1:msg-2",
+        source="telegram",
+        source_message_id="msg-2",
+        source_user_id="user-1",
         infer_runner=fake_infer,
         execute_runner=fake_execute,
     )
 
     assert result["status"] == "executed"
+    assert result["request"]["request_id"] == "telegram:chat-1:msg-2"
+    assert result["request"]["source_message_id"] == "msg-2"
+    assert result["request"]["source_user_id"] == "user-1"
     assert result["result"]["success"] is True
 
 
@@ -73,15 +81,23 @@ def test_build_exec_tool_command_returns_shell_friendly_args():
             "raw_input": "내일 오후 5시에 윤하 테니스 넣어줘",
             "nlu": "openclaw",
             "request_source": "openclaw_exec_tool",
+            "request_id": "telegram:chat-1:msg-2",
+            "source": "telegram",
+            "source_message_id": "msg-2",
         }
     )
 
     assert command[0] == str(Path.cwd() / ".venv" / "bin" / "python")
-    assert "molly_create_event.py" in command[1]
+    assert "molly_schedule_action.py" in command[1]
+    assert "create" in command
     assert "--calendar" in command
     assert "younha" in command
     assert "--title" in command
     assert "Tennis" in command
+    assert "--request-id" in command
+    assert "telegram:chat-1:msg-2" in command
+    assert "--source-message-id" in command
+    assert "msg-2" in command
 
 
 def test_build_exec_tool_command_includes_end_date_when_present():

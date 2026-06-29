@@ -65,7 +65,7 @@ def command_to_intent(command: dict, raw_input: str = "") -> IntentResolution:
         )
         return _ready(intent)
 
-    if cmd in {"week", "week_next", "month", "month_next", "upcoming", "next"}:
+    if cmd in {"week", "week_next", "month", "month_remaining", "month_next", "upcoming", "next"}:
         action = IntentAction.VIEW_RANGE
         intent = ScheduleIntent(
             action=action,

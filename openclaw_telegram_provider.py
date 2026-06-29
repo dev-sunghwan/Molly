@@ -149,6 +149,8 @@ def _draft_from_payload(payload: dict[str, Any]) -> ExtractedTelegramDraft:
         title=_string_or_none(payload.get("title")),
         target_date_text=_string_or_none(payload.get("target_date_text")),
         time_text=_string_or_none(payload.get("time_text")),
+        updated_title=_string_or_none(payload.get("updated_title")),
+        updated_date_text=_string_or_none(payload.get("updated_date_text")),
         limit=limit,
         confidence=confidence,
         reasoning=_string_or_none(payload.get("reasoning")),

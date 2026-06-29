@@ -4,12 +4,15 @@ clarification_state.py — Pending clarification state backed by SQLite.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
+import re
 
 import config
 import state_store
 from intent_adapter import validate_intent
 from intent_models import IntentResolution, ScheduleIntent, TimeRange
 import utils
+from intent_models import DateRange
 
 
 @dataclass
@@ -59,6 +62,34 @@ def apply_reply(user_id: int, text: str) -> IntentResolution | None:
         return updated_resolution
 
     if "target_date" in resolution.missing_fields:
+        parsed_multiday = _parse_multiday_date_reply(text, intent)
+        if parsed_multiday is not None:
+            updated_intent = _copy_intent(intent)
+            updated_intent.target_date = parsed_multiday["start_date"]
+            updated_intent.date_range = DateRange(
+                start=parsed_multiday["start_date"],
+                end=parsed_multiday["end_date"],
+            )
+            updated_intent.time_range = TimeRange(
+                start=parsed_multiday["start_time"],
+                end=parsed_multiday["end_time"],
+            )
+            updated_intent.metadata["all_day"] = False
+            remaining_missing = [field for field in resolution.missing_fields if field not in {"target_date", "time_range"}]
+            if remaining_missing:
+                updated_resolution = IntentResolution(
+                    status=resolution.status,
+                    intent=updated_intent,
+                    missing_fields=remaining_missing,
+                    clarification_prompt=_clarification_prompt(remaining_missing),
+                )
+                set_pending(user_id, updated_resolution)
+                return updated_resolution
+
+            updated_resolution = validate_intent(updated_intent)
+            clear_pending(user_id)
+            return updated_resolution
+
         parsed_date = utils.parse_date(reply)
         if parsed_date is not None:
             updated_intent = _copy_intent(intent)
@@ -117,6 +148,49 @@ def apply_reply(user_id: int, text: str) -> IntentResolution | None:
             return updated_resolution
 
     return None
+
+
+def _parse_multiday_date_reply(text: str, intent: ScheduleIntent | None = None) -> dict | None:
+    if intent is None or intent.target_date is None or intent.time_range is None:
+        return None
+
+    raw = text.strip()
+    lowered = raw.lower()
+    match = re.search(
+        r"(?:can\s+it\s+end\s+on\s+)?(\d{1,2}\s+[a-z]{3,9}|[a-z]{3,9}\s+\d{1,2}|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)",
+        lowered,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+
+    end_date = utils.parse_date(match.group(1).strip())
+    if end_date is None or end_date < intent.target_date:
+        return None
+
+    end_clock = utils.parse_clock_time(match.group(2).strip())
+    if end_clock is None:
+        return None
+
+    start_date = intent.target_date
+    start_time = intent.time_range.start
+    if end_date == start_date:
+        start_minutes = _clock_to_minutes(start_time)
+        end_minutes = _clock_to_minutes(end_clock)
+        if end_minutes <= start_minutes:
+            end_date = start_date + timedelta(days=1)
+
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "start_time": start_time,
+        "end_time": end_clock,
+    }
+
+
+def _clock_to_minutes(value: str) -> int:
+    hour, minute = value.split(":", 1)
+    return int(hour) * 60 + int(minute)
 
 
 def _copy_intent(intent: ScheduleIntent) -> ScheduleIntent:

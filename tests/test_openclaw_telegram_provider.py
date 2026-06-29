@@ -84,3 +84,32 @@ def test_build_extraction_prompt_mentions_all_calendar_default_for_upcoming():
 
     assert "leave target_calendar empty" in prompt
     assert "all-calendars default" in prompt
+
+
+def test_draft_from_payload_builds_update_event_draft():
+    draft = _draft_from_payload(
+        {
+            "action": "update_event",
+            "target_calendar": "지영",
+            "title": "running",
+            "target_date_text": "내일",
+            "time_text": "오후 8시 15분부터 9시",
+            "updated_title": None,
+            "updated_date_text": None,
+            "confidence": 0.88,
+            "missing_fields": [],
+        }
+    )
+
+    assert draft.action == "update_event"
+    assert draft.target_calendar == "지영"
+    assert draft.title == "running"
+    assert draft.time_text == "오후 8시 15분부터 9시"
+
+
+def test_build_extraction_prompt_mentions_update_event_schema():
+    prompt = build_extraction_prompt("지영 running 시간을 20:15-21:00로 바꿔줘")
+
+    assert "update_event" in prompt
+    assert "updated_date_text" in prompt
+    assert "updated_title" in prompt

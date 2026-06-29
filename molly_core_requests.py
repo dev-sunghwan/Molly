@@ -23,7 +23,56 @@ from intent_models import (
 )
 
 
+_COMMON_FIELDS = {
+    "action",
+    "request_id",
+    "source",
+    "source_message_id",
+    "source_user_id",
+    "source_user_name",
+    "source_channel_id",
+    "raw_input",
+    "nlu",
+    "request_source",
+}
+
+_ACTION_FIELDS = {
+    "create_event": {
+        "target_calendar",
+        "title",
+        "target_date",
+        "end_date",
+        "start_time",
+        "end_time",
+        "all_day",
+        "recurrence",
+    },
+    "view": {"scope", "target_calendar", "target_date", "limit"},
+    "search": {"query"},
+    "delete_event": {"target_calendar", "title", "target_date"},
+    "move_event": {"source_calendar", "target_calendar", "title", "target_date"},
+    "update_event": {"target_calendar", "title", "target_date", "changes"},
+}
+
+_UPDATE_CHANGE_FIELDS = {"title", "target_date", "start_time", "end_time"}
+
+_BLOCKED_FIELDS = {
+    "code",
+    "command",
+    "db_write",
+    "eval",
+    "exec",
+    "function_call",
+    "python",
+    "shell",
+    "sql",
+    "tool",
+    "tool_call",
+}
+
+
 def resolution_from_request(payload: dict) -> IntentResolution:
+    action = _validate_request_payload(payload)
     action = str(payload.get("action", "")).strip().lower()
     if action == "create_event":
         return _create_event_resolution(payload)
@@ -43,23 +92,65 @@ def resolution_from_request(payload: dict) -> IntentResolution:
     )
 
 
+def _validate_request_payload(payload: dict) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("Molly Core request must be a JSON object")
+
+    action = str(payload.get("action", "")).strip().lower()
+    if action not in _ACTION_FIELDS:
+        raise ValueError(
+            "Unsupported action for Molly Core request interface: "
+            f"{action or '<empty>'}"
+        )
+
+    allowed = _COMMON_FIELDS | _ACTION_FIELDS[action]
+    unexpected = sorted(set(payload) - allowed)
+    if unexpected:
+        raise ValueError(f"Unsupported field(s) for {action}: {', '.join(unexpected)}")
+
+    blocked = sorted(set(payload) & _BLOCKED_FIELDS)
+    if blocked:
+        raise ValueError(f"Unsafe field(s) are not allowed: {', '.join(blocked)}")
+
+    if action == "update_event":
+        changes = payload.get("changes")
+        if isinstance(changes, dict):
+            unexpected_changes = sorted(set(changes) - _UPDATE_CHANGE_FIELDS)
+            if unexpected_changes:
+                raise ValueError(
+                    "Unsupported change field(s) for update_event: "
+                    + ", ".join(unexpected_changes)
+                )
+            blocked_changes = sorted(set(changes) & _BLOCKED_FIELDS)
+            if blocked_changes:
+                raise ValueError(
+                    "Unsafe change field(s) are not allowed: "
+                    + ", ".join(blocked_changes)
+                )
+
+    return action
+
+
 def _create_event_resolution(payload: dict) -> IntentResolution:
     calendar_key = _normalize_calendar(payload.get("target_calendar"))
     title = _required_string(payload.get("title"), "title")
     target_date = _parse_date(payload.get("target_date"))
     end_date = _optional_date(payload.get("end_date"))
-    all_day = bool(payload.get("all_day", False))
+    all_day = _optional_bool(payload.get("all_day"), default=False)
     recurrence = _parse_recurrence(payload.get("recurrence"))
 
     time_range = None
     if not all_day:
         start_time = _required_string(payload.get("start_time"), "start_time")
+        start_time = _parse_clock_time(start_time, "start_time")
         end_time = _optional_string(payload.get("end_time"))
         if not end_time:
             parsed = utils.parse_time(start_time)
             if parsed is None:
                 raise ValueError(f"Invalid start_time: {start_time}")
             _, end_time = parsed
+        else:
+            end_time = _parse_clock_time(end_time, "end_time")
         time_range = TimeRange(start=start_time, end=end_time)
 
     if recurrence and end_date is not None and end_date != target_date:
@@ -110,7 +201,7 @@ def _view_resolution(payload: dict) -> IntentResolution:
         return IntentResolution(status=ResolutionStatus.READY, intent=intent)
 
     if scope in {"next", "upcoming"}:
-        limit = int(payload.get("limit", 1 if scope == "next" else 10))
+        limit = _optional_limit(payload.get("limit"), default=1 if scope == "next" else 10)
         metadata = {"command": "next" if scope == "next" else "upcoming"}
         intent = ScheduleIntent(
             action=IntentAction.VIEW_RANGE,
@@ -122,7 +213,7 @@ def _view_resolution(payload: dict) -> IntentResolution:
         )
         return IntentResolution(status=ResolutionStatus.READY, intent=intent)
 
-    if scope in {"week", "week_next", "month", "month_next"}:
+    if scope in {"week", "week_next", "month", "month_remaining", "month_next"}:
         intent = ScheduleIntent(
             action=IntentAction.VIEW_RANGE,
             source=IntentSource.TELEGRAM_FREE_TEXT,
@@ -199,8 +290,14 @@ def _update_event_resolution(payload: dict) -> IntentResolution:
     if has_start != has_end:
         raise ValueError("changes.start_time and changes.end_time must be provided together")
     if has_start and has_end:
-        changes["start"] = _required_string(changes_payload.get("start_time"), "changes.start_time")
-        changes["end"] = _required_string(changes_payload.get("end_time"), "changes.end_time")
+        changes["start"] = _parse_clock_time(
+            _required_string(changes_payload.get("start_time"), "changes.start_time"),
+            "changes.start_time",
+        )
+        changes["end"] = _parse_clock_time(
+            _required_string(changes_payload.get("end_time"), "changes.end_time"),
+            "changes.end_time",
+        )
     if not changes:
         raise ValueError("update_event requires at least one change")
 
@@ -261,10 +358,41 @@ def _parse_recurrence(value) -> list[str]:
         return []
     if not isinstance(value, list):
         raise ValueError("recurrence must be a list of RRULE strings")
-    return [str(item) for item in value]
+    recurrence = [str(item).strip() for item in value]
+    for item in recurrence:
+        if not item.startswith("RRULE:"):
+            raise ValueError(f"Unsupported recurrence item: {item}")
+    return recurrence
 
 
 def _optional_date(value) -> date | None:
     if value is None or str(value).strip() == "":
         return None
     return _parse_date(value)
+
+
+def _optional_bool(value, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    raise ValueError("all_day must be a boolean")
+
+
+def _parse_clock_time(value: str, field_name: str) -> str:
+    parsed = utils.parse_clock_time(value)
+    if parsed is None:
+        raise ValueError(f"Invalid {field_name}: {value}")
+    return parsed
+
+
+def _optional_limit(value, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid limit: {value}") from exc
+    if not 1 <= limit <= 50:
+        raise ValueError("limit must be between 1 and 50")
+    return limit

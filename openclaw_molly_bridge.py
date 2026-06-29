@@ -21,6 +21,7 @@ from typing import Any, Callable
 PROJECT_ROOT = Path(__file__).resolve().parent
 MOLLY_CORE_EXECUTE = PROJECT_ROOT / "scripts" / "molly_core_execute.py"
 MOLLY_CREATE_EVENT_EXEC = PROJECT_ROOT / "scripts" / "molly_create_event.py"
+MOLLY_SCHEDULE_ACTION_EXEC = PROJECT_ROOT / "scripts" / "molly_schedule_action.py"
 PROJECT_VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 
 
@@ -53,6 +54,12 @@ def build_create_event_prompt(message_text: str) -> str:
 def run_create_event_bridge(
     message_text: str,
     *,
+    request_id: str | None = None,
+    source: str = "telegram",
+    source_message_id: str | None = None,
+    source_user_id: str | None = None,
+    source_user_name: str | None = None,
+    source_channel_id: str | None = None,
     infer_runner: Callable[[str], str] | None = None,
     execute_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -65,6 +72,15 @@ def run_create_event_bridge(
     if payload.get("status") == "needs_clarification":
         return payload
 
+    payload = _with_request_metadata(
+        payload,
+        request_id=request_id,
+        source=source,
+        source_message_id=source_message_id,
+        source_user_id=source_user_id,
+        source_user_name=source_user_name,
+        source_channel_id=source_channel_id,
+    )
     result = execute(payload)
     return {
         "status": "executed",
@@ -102,9 +118,10 @@ def build_exec_tool_command(payload: dict[str, Any]) -> list[str]:
     if payload.get("action") != "create_event":
         raise ValueError("Only create_event is supported by the exec tool command builder")
 
-    return [
+    command = [
         str(_preferred_python_executable()),
-        str(MOLLY_CREATE_EVENT_EXEC),
+        str(MOLLY_SCHEDULE_ACTION_EXEC),
+        "create",
         "--calendar",
         str(payload["target_calendar"]),
         "--title",
@@ -130,6 +147,48 @@ def build_exec_tool_command(payload: dict[str, Any]) -> list[str]:
         "--request-source",
         str(payload.get("request_source", "openclaw_exec_tool")),
     ]
+    _append_optional_flag(command, "--request-id", payload.get("request_id"))
+    _append_optional_flag(command, "--source", payload.get("source"))
+    _append_optional_flag(command, "--source-message-id", payload.get("source_message_id"))
+    _append_optional_flag(command, "--source-user-id", payload.get("source_user_id"))
+    _append_optional_flag(command, "--source-user-name", payload.get("source_user_name"))
+    _append_optional_flag(command, "--source-channel-id", payload.get("source_channel_id"))
+    return command
+
+
+def _with_request_metadata(
+    payload: dict[str, Any],
+    *,
+    request_id: str | None,
+    source: str,
+    source_message_id: str | None,
+    source_user_id: str | None,
+    source_user_name: str | None,
+    source_channel_id: str | None,
+) -> dict[str, Any]:
+    enriched = dict(payload)
+    if request_id:
+        enriched["request_id"] = request_id
+    if source:
+        enriched["source"] = source
+    if source_message_id:
+        enriched["source_message_id"] = source_message_id
+    if source_user_id:
+        enriched["source_user_id"] = source_user_id
+    if source_user_name:
+        enriched["source_user_name"] = source_user_name
+    if source_channel_id:
+        enriched["source_channel_id"] = source_channel_id
+    return enriched
+
+
+def _append_optional_flag(command: list[str], flag: str, value: Any) -> None:
+    if value is None:
+        return
+    text = str(value).strip()
+    if not text:
+        return
+    command.extend([flag, text])
 
 
 def _preferred_python_executable() -> Path:

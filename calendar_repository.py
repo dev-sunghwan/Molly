@@ -23,10 +23,11 @@ class CalendarRepository:
 
     @classmethod
     def from_config(cls) -> "CalendarRepository":
-        backend_module = _select_backend_module(config.CALENDAR_BACKEND)
+        backend_name = _configured_backend_name()
+        backend_module = _select_backend_module(backend_name)
         service = backend_module.authenticate()
         return cls(
-            backend_name=config.CALENDAR_BACKEND,
+            backend_name=backend_name,
             service=service,
             backend_module=backend_module,
         )
@@ -40,6 +41,24 @@ class CalendarRepository:
     def add_event(self, command: dict) -> str:
         return self.backend_module.add_event(self.service, command)
 
+    def add_event_result(self, command: dict) -> tuple[str, object | None]:
+        runner = getattr(self.backend_module, "add_event_result", None)
+        if runner is None:
+            return self.add_event(command), None
+        return runner(self.service, command)
+
+    def find_event_id_for_command(self, command: dict) -> str | None:
+        finder = getattr(self.backend_module, "find_event_id_for_command", None)
+        if finder is None:
+            return None
+        return finder(self.service, command)
+
+    def get_event_by_id(self, event_id: str) -> dict | None:
+        getter = getattr(self.backend_module, "get_event_by_id", None)
+        if getter is None:
+            return None
+        return getter(self.service, event_id)
+
     def find_and_edit_event(self, cal_key: str, target_date: date | None, title: str, changes: dict) -> str:
         return self.backend_module.find_and_edit_event(
             self.service,
@@ -48,6 +67,18 @@ class CalendarRepository:
             title,
             changes,
         )
+
+    def find_and_edit_event_result(
+        self,
+        cal_key: str,
+        target_date: date | None,
+        title: str,
+        changes: dict,
+    ) -> tuple[str, object | None]:
+        runner = getattr(self.backend_module, "find_and_edit_event_result", None)
+        if runner is None:
+            return self.find_and_edit_event(cal_key, target_date, title, changes), None
+        return runner(self.service, cal_key, target_date, title, changes)
 
     def find_and_delete_event(self, cal_key: str, target_date: date | None, title: str | None, start_time: str | None = None) -> str:
         return self.backend_module.find_and_delete_event(
@@ -58,6 +89,18 @@ class CalendarRepository:
             start_time=start_time,
         )
 
+    def find_and_delete_event_result(
+        self,
+        cal_key: str,
+        target_date: date | None,
+        title: str | None,
+        start_time: str | None = None,
+    ) -> tuple[str, object | None]:
+        runner = getattr(self.backend_module, "find_and_delete_event_result", None)
+        if runner is None:
+            return self.find_and_delete_event(cal_key, target_date, title, start_time), None
+        return runner(self.service, cal_key, target_date, title, start_time=start_time)
+
     def move_event(self, source_cal_key: str, target_cal_key: str, target_date: date | None, title: str) -> str:
         return self.backend_module.move_event(
             self.service,
@@ -67,8 +110,26 @@ class CalendarRepository:
             title,
         )
 
+    def move_event_result(
+        self,
+        source_cal_key: str,
+        target_cal_key: str,
+        target_date: date | None,
+        title: str,
+    ) -> tuple[str, object | None]:
+        runner = getattr(self.backend_module, "move_event_result", None)
+        if runner is None:
+            return self.move_event(source_cal_key, target_cal_key, target_date, title), None
+        return runner(self.service, source_cal_key, target_cal_key, target_date, title)
+
     def delete_recurring_series(self, cal_key: str, title: str) -> str:
         return self.backend_module.delete_recurring_series(self.service, cal_key, title)
+
+    def delete_recurring_series_result(self, cal_key: str, title: str) -> tuple[str, object | None]:
+        runner = getattr(self.backend_module, "delete_recurring_series_result", None)
+        if runner is None:
+            return self.delete_recurring_series(cal_key, title), None
+        return runner(self.service, cal_key, title)
 
     def search_events(self, keyword: str, days: int = 90) -> list[dict]:
         return self.backend_module.search_events(self.service, keyword, days=days)
@@ -87,6 +148,17 @@ def _select_backend_module(backend_name: str):
     if normalized == "google":
         return google_calendar_backend
     raise ValueError(f"Unsupported calendar backend: {backend_name}")
+
+
+def _configured_backend_name() -> str:
+    normalized = config.CALENDAR_BACKEND.strip().lower()
+    if normalized == "google" and not config.ALLOW_GOOGLE_PRIMARY_BACKEND:
+        raise ValueError(
+            "Google Calendar cannot be used as Molly's primary execution backend "
+            "unless MOLLY_ALLOW_GOOGLE_PRIMARY_BACKEND=1 is set. Use local as the "
+            "source of truth and sync to Google asynchronously."
+        )
+    return normalized
 
 
 def format_search_results(events: list[dict], keyword: str) -> str:

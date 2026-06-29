@@ -310,6 +310,10 @@ def test_month():
     assert commands.parse("month") == {"cmd": "month"}
     assert commands.parse("MONTH") == {"cmd": "month"}
 
+def test_month_remaining():
+    assert commands.parse("month remaining") == {"cmd": "month_remaining"}
+    assert commands.parse("REMAINING MONTH") == {"cmd": "month_remaining"}
+
 def test_month_next():
     assert commands.parse("month next") == {"cmd": "month_next"}
 

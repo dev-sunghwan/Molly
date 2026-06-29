@@ -53,8 +53,12 @@ def day_name_to_rrule(day: str) -> str | None:
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
+def _now_local() -> datetime:
+    return datetime.now(TZ)
+
+
 def _today_local() -> date:
-    return datetime.now(TZ).date()
+    return _now_local().date()
 
 
 def parse_date(token: str) -> date | None:
@@ -303,12 +307,20 @@ def get_month_range(offset: int = 0) -> tuple[date, date]:
     year = today.year + (month - 1) // 12
     month = ((month - 1) % 12) + 1
     first = date(year, month, 1)
-    # Last day: first day of next month minus one day
-    if month == 12:
-        last = date(year + 1, 1, 1) - timedelta(days=1)
-    else:
-        last = date(year, month + 1, 1) - timedelta(days=1)
+    last = _last_day_of_month(year, month)
     return first, last
+
+
+def get_remaining_month_range() -> tuple[date, date]:
+    """Return (today, last_day) for the current month."""
+    today = _today_local()
+    return today, _last_day_of_month(today.year, today.month)
+
+
+def _last_day_of_month(year: int, month: int) -> date:
+    if month == 12:
+        return date(year + 1, 1, 1) - timedelta(days=1)
+    return date(year, month + 1, 1) - timedelta(days=1)
 
 
 def format_week(events: list[dict], start_date: date, end_date: date) -> str:
@@ -336,6 +348,37 @@ def format_week(events: list[dict], start_date: date, end_date: date) -> str:
         current += timedelta(days=1)
 
     return "\n".join(lines)
+
+
+def filter_events_from_now(events: list[dict]) -> list[dict]:
+    """Return events that are ongoing or start after the current local time."""
+    now = _now_local()
+    today = now.date()
+    upcoming: list[dict] = []
+
+    for event in events:
+        start = event.get("start", {})
+        end = event.get("end", {})
+        if "dateTime" in start:
+            event_end = (
+                datetime.fromisoformat(end["dateTime"]).astimezone(TZ)
+                if "dateTime" in end
+                else datetime.fromisoformat(start["dateTime"]).astimezone(TZ)
+            )
+            if event_end > now:
+                upcoming.append(event)
+            continue
+
+        if "date" in start:
+            end_date_value = (
+                date.fromisoformat(end["date"]) - timedelta(days=1)
+                if "date" in end
+                else date.fromisoformat(start["date"])
+            )
+            if end_date_value >= today:
+                upcoming.append(event)
+
+    return upcoming
 
 
 def format_month(events: list[dict], first: date, last: date) -> str:

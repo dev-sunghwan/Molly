@@ -23,7 +23,7 @@ USAGE = (
     "── View ──\n"
     "today · tomorrow\n"
     "week · week next\n"
-    "month · month next\n"
+    "month · month remaining · month next\n"
     "&lt;Mon-Sun&gt; · &lt;dd-mm-yyyy&gt;\n"
     "\n"
     "── Commands ──\n"
@@ -42,7 +42,7 @@ HELP_VIEW = (
     "Show events for a specific period:\n"
     "  today · tomorrow\n"
     "  week · week next\n"
-    "  month · month next\n"
+    "  month · month remaining · month next\n"
     "\n"
     "Show events for a specific day:\n"
     "  &lt;Mon-Sun&gt;      next occurrence of that weekday\n"
@@ -194,6 +194,9 @@ def parse(text: str) -> dict:
 
     if lower == "month":
         return {"cmd": "month"}
+
+    if lower in ("month remaining", "remaining month"):
+        return {"cmd": "month_remaining"}
 
     if lower == "month next":
         return {"cmd": "month_next"}

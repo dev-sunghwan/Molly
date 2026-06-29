@@ -93,6 +93,8 @@ Molly를 하나의 agent로 계속 운영하면 실사용 텔레그램 응답과
 
 ## 6. 권장 권한 경계
 
+세부 운영 기준은 `docs/openclaw_security_boundary_ko.md`를 따른다.
+
 Telegram Fast Agent:
 
 - 허용: Molly scheduling CLI, 최소 runtime execution

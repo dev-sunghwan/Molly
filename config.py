@@ -14,7 +14,23 @@ load_dotenv(ROOT / ".env")
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+LEGACY_TELEGRAM_BOT_ENABLED: bool = os.getenv(
+    "MOLLY_LEGACY_TELEGRAM_BOT_ENABLED",
+    "0",
+).strip().lower() in {"1", "true", "yes", "on"}
 CALENDAR_BACKEND: str = os.getenv("MOLLY_CALENDAR_BACKEND", "local").strip().lower()
+ALLOW_GOOGLE_PRIMARY_BACKEND: bool = os.getenv(
+    "MOLLY_ALLOW_GOOGLE_PRIMARY_BACKEND",
+    "0",
+).strip().lower() in {"1", "true", "yes", "on"}
+GOOGLE_SYNC_OUTBOX_ENABLED: bool = os.getenv(
+    "MOLLY_GOOGLE_SYNC_OUTBOX_ENABLED",
+    "1",
+).strip().lower() not in {"0", "false", "no", "off"}
+REQUIRE_REQUEST_ID_FOR_MUTATIONS: bool = os.getenv(
+    "MOLLY_REQUIRE_REQUEST_ID_FOR_MUTATIONS",
+    "0",
+).strip().lower() in {"1", "true", "yes", "on"}
 TELEGRAM_EXTRACTOR_BACKEND: str = os.getenv(
     "MOLLY_TELEGRAM_EXTRACTOR_BACKEND",
     "heuristic",
@@ -115,8 +131,17 @@ def validate():
     if not TELEGRAM_BOT_TOKEN:
         errors.append("TELEGRAM_BOT_TOKEN is not set in .env")
     if not ALLOWED_USER_IDS or 0 in ALLOWED_USER_IDS:
-        errors.append("allowed_user_ids in config.json contains placeholder value 0 — set a real Telegram user ID")
+        errors.append(
+            "allowed_user_ids in config.json contains placeholder value 0 "
+            "- set a real Telegram user ID"
+        )
     if CALENDAR_BACKEND == "google":
+        if not ALLOW_GOOGLE_PRIMARY_BACKEND:
+            errors.append(
+                "MOLLY_CALENDAR_BACKEND=google is disabled for production. "
+                "Use the local backend as source of truth, or set "
+                "MOLLY_ALLOW_GOOGLE_PRIMARY_BACKEND=1 for an explicit legacy/dev run."
+            )
         if not CREDENTIALS_PATH.exists():
             errors.append(f"credentials.json not found at {CREDENTIALS_PATH}")
         for name, cal_id in CALENDARS.items():
@@ -133,8 +158,12 @@ def validate():
             errors.append("OPENCLAW_API_URL is required when using the openclaw Telegram extractor")
         if not OPENCLAW_TELEGRAM_MODEL:
             errors.append(
-                "OPENCLAW_TELEGRAM_MODEL or OPENCLAW_MODEL is required when using the openclaw Telegram extractor"
+                "OPENCLAW_TELEGRAM_MODEL or OPENCLAW_MODEL is required when using "
+                "the openclaw Telegram extractor"
             )
     if errors:
         msg = "\n".join(f"  ❌ {e}" for e in errors)
-        raise SystemExit(f"[Molly] Config errors found:\n{msg}\n\nEdit config.json and .env before running.")
+        raise SystemExit(
+            f"[Molly] Config errors found:\n{msg}\n\n"
+            "Edit config.json and .env before running."
+        )

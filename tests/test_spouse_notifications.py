@@ -52,6 +52,27 @@ def test_build_spouse_notification_for_create_event_with_actor_name_fallback():
     assert "BBQ" in text
 
 
+def test_build_spouse_notification_for_update_event_shows_before_and_after():
+    intent = ScheduleIntent(
+        action=IntentAction.UPDATE_EVENT,
+        source=IntentSource.TELEGRAM_FREE_TEXT,
+        target_calendar="younha",
+        title="Alpha-Math",
+        target_date=date(2026, 4, 17),
+        time_range=TimeRange(start="17:00", end="18:00"),
+        changes={"start": "18:30", "end": "19:30"},
+    )
+
+    text = spouse_notifications.build_spouse_notification(8289608844, intent, success=True)
+
+    assert text is not None
+    assert "수정했어요" in text
+    assert "기존: Alpha-Math" in text
+    assert "17:00–18:00" in text
+    assert "변경: Alpha-Math" in text
+    assert "18:30–19:30" in text
+
+
 def test_build_spouse_notification_skips_non_mutating_actions():
     intent = ScheduleIntent(
         action=IntentAction.VIEW_DAILY,

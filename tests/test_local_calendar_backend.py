@@ -110,6 +110,25 @@ def test_local_backend_blocks_exact_duplicate_event(monkeypatch, tmp_path):
     assert events[0]["summary"] == "Alpha-Math"
 
 
+def test_local_backend_finds_event_id_for_command(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+
+    service = local_calendar_backend.authenticate()
+    command = {
+        "calendar": "younha",
+        "title": "Alpha-Math",
+        "date": utils._today_local(),
+        "start": "17:00",
+        "end": "18:00",
+    }
+    missing = local_calendar_backend.find_event_id_for_command(service, command)
+    local_calendar_backend.add_event(service, command)
+    found = local_calendar_backend.find_event_id_for_command(service, command)
+
+    assert missing is None
+    assert found is not None
+
+
 def test_local_backend_blocks_same_slot_when_recurrence_differs(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
 
@@ -175,8 +194,63 @@ def test_local_backend_edit_and_delete_non_recurring(monkeypatch, tmp_path):
     )
 
     assert "Updated in SungHwan" in edit_message
+    assert "Before:" in edit_message
+    assert "14:00–15:00" in edit_message
+    assert "After:" in edit_message
     assert "15:00–16:00" in edit_message
     assert "Deleted from SungHwan" in delete_message
+
+
+def test_local_backend_mutation_results_include_local_event_id(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+
+    service = local_calendar_backend.authenticate()
+    today = utils._today_local()
+    add_message, add_result = local_calendar_backend.add_event_result(
+        service,
+        {
+            "calendar": "family",
+            "title": "Mutation Contract",
+            "date": today,
+            "start": "14:00",
+            "end": "15:00",
+        },
+    )
+    edit_message, edit_result = local_calendar_backend.find_and_edit_event_result(
+        service,
+        "family",
+        today,
+        "Mutation Contract",
+        {"start": "15:00", "end": "16:00"},
+    )
+    delete_message, delete_result = local_calendar_backend.find_and_delete_event_result(
+        service,
+        "family",
+        today,
+        "Mutation Contract",
+    )
+
+    assert "Added to Family" in add_message
+    assert add_result.local_event_id is not None
+    assert add_result.operation == "create"
+    assert add_result.target_calendar == "family"
+    assert add_result.target_date == today
+    assert add_result.start_time == "14:00"
+
+    assert "Updated in Family" in edit_message
+    assert "Before:" in edit_message
+    assert "14:00–15:00" in edit_message
+    assert "After:" in edit_message
+    assert "15:00–16:00" in edit_message
+    assert edit_result.local_event_id == add_result.local_event_id
+    assert edit_result.operation == "update"
+    assert edit_result.start_time == "15:00"
+    assert edit_result.end_time == "16:00"
+
+    assert "Deleted from Family" in delete_message
+    assert delete_result.local_event_id == add_result.local_event_id
+    assert delete_result.operation == "delete"
+    assert delete_result.title == "Mutation Contract"
 
 
 def test_local_backend_timed_multiday_event_lists_across_days(monkeypatch, tmp_path):

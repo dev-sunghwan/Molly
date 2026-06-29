@@ -17,6 +17,8 @@ class ExtractedTelegramDraft:
     title: str | None = None
     target_date_text: str | None = None
     time_text: str | None = None
+    updated_title: str | None = None
+    updated_date_text: str | None = None
     limit: int | None = None
     confidence: float | None = None
     reasoning: str | None = None
@@ -30,9 +32,12 @@ def build_extraction_prompt(message_text: str) -> str:
     """
     return (
         "Read the Telegram message and return a structured scheduling draft.\n"
-        "Choose one action from: create_event, view_daily, view_range.\n"
+        "Choose one action from: create_event, update_event, view_daily, view_range.\n"
         "If create_event, extract title, family member/calendar, date text, "
         "time text, and any missing fields.\n"
+        "If update_event, extract the target calendar, existing title, optional existing date text, "
+        "and the new time/date/title to change. Put new time in time_text, new date in updated_date_text, "
+        "and new title in updated_title.\n"
         "If view_daily or view_range, extract the relevant date/range intent.\n"
         "Do not guess a calendar when the user did not name one explicitly.\n"
         "For requests like 'upcoming' or 'next' without a calendar, leave target_calendar empty so Molly Core can use its all-calendars default.\n"

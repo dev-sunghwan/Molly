@@ -10,7 +10,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 import config
 import utils
@@ -20,6 +20,36 @@ import utils
 class LocalCalendarService:
     backend: str
     db_path: str
+
+
+@dataclass(frozen=True)
+class LocalMutationResult:
+    success: bool
+    operation: str
+    local_event_id: str | None = None
+    target_calendar: str | None = None
+    source_calendar: str | None = None
+    title: str | None = None
+    target_date: date | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    all_day: bool | None = None
+    recurrence: list[str] | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "success": self.success,
+            "operation": self.operation,
+            "local_event_id": self.local_event_id,
+            "target_calendar": self.target_calendar,
+            "source_calendar": self.source_calendar,
+            "title": self.title,
+            "target_date": self.target_date.isoformat() if self.target_date else None,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "all_day": self.all_day,
+            "recurrence": list(self.recurrence or []),
+        }
 
 
 def authenticate() -> LocalCalendarService:
@@ -39,6 +69,11 @@ def list_events(service: LocalCalendarService, target_date: date) -> list[dict]:
 
 
 def add_event(service: LocalCalendarService, cmd: dict) -> str:
+    message, _result = add_event_result(service, cmd)
+    return message
+
+
+def add_event_result(service: LocalCalendarService, cmd: dict) -> tuple[str, LocalMutationResult | None]:
     _ = service
     event_id = str(uuid.uuid4())
     recurrence = json.dumps(cmd.get("recurrence", []))
@@ -53,7 +88,7 @@ def add_event(service: LocalCalendarService, cmd: dict) -> str:
         return (
             "❌ Recurring events cannot span multiple days in the local calendar.\n"
             "Use the first occurrence date only for weekly recurring events."
-        )
+        ), None
 
     with _connect() as conn:
         existing = _find_exact_duplicate(
@@ -89,6 +124,10 @@ def add_event(service: LocalCalendarService, cmd: dict) -> str:
                 f"ℹ️ Already exists in {cal_display}:\n"
                 f"  {title}\n"
                 f"  {utils.format_short_day_date(cmd['date'])}  {reply_time_str}{recurring_label}"
+            ), _mutation_result_from_row(
+                operation="create",
+                row=existing,
+                target_calendar=calendar_key,
             )
 
         conn.execute(
@@ -154,10 +193,61 @@ def add_event(service: LocalCalendarService, cmd: dict) -> str:
                 dt_end = datetime.fromisoformat(end["dateTime"]).astimezone(utils.TZ)
                 lines.append(f"  • {dt.strftime('%H:%M')}–{dt_end.strftime('%H:%M')}  {ev.get('summary', '')}")
             reply += "\n".join(lines)
-    return reply
+    return reply, LocalMutationResult(
+        success=True,
+        operation="create",
+        local_event_id=event_id,
+        target_calendar=calendar_key,
+        title=title,
+        target_date=cmd["date"],
+        start_time=start_str,
+        end_time=end_str,
+        all_day=all_day,
+        recurrence=list(cmd.get("recurrence") or []),
+    )
+
+
+
+
+def get_event_by_id(service: LocalCalendarService, event_id: str) -> dict | None:
+    _ = service
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM local_events WHERE id = ?", (event_id,)).fetchone()
+    if row is None:
+        return None
+    occurrence_date = date.fromisoformat(row["start_date"])
+    events = _expand_row(row, occurrence_date, date.fromisoformat(row["end_date"]))
+    return events[0] if events else _row_to_event(row, occurrence_date)
+
+def find_event_id_for_command(service: LocalCalendarService, cmd: dict) -> str | None:
+    _ = service
+    all_day = bool(cmd.get("all_day", False))
+    end_date = cmd.get("end_date", cmd["date"])
+    with _connect() as conn:
+        row = _find_exact_duplicate(
+            conn=conn,
+            calendar_key=cmd["calendar"],
+            summary=cmd["title"],
+            start_date_value=cmd["date"],
+            end_date_value=end_date,
+            start_time=cmd.get("start"),
+            end_time=cmd.get("end"),
+            all_day=all_day,
+        )
+    return row["id"] if row is not None else None
 
 
 def delete_recurring_series(service: LocalCalendarService, cal_key: str, title: str) -> str:
+    message, _result = delete_recurring_series_result(service, cal_key, title)
+    return message
+
+
+def delete_recurring_series_result(
+    service: LocalCalendarService,
+    cal_key: str,
+    title: str,
+) -> tuple[str, LocalMutationResult | None]:
+    _ = service
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -167,23 +257,35 @@ def delete_recurring_series(service: LocalCalendarService, cal_key: str, title: 
             (cal_key, title),
         ).fetchall()
         if not rows:
-            return f"❌ No event '{title}' found in {config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)} (next 90 days)"
+            return (
+                f"❌ No event '{title}' found in {config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)} (next 90 days)"
+            ), None
 
         recurring = [row for row in rows if json.loads(row["recurrence_json"] or "[]")]
         if not recurring:
             if len(rows) > 1:
-                return _multiple_matches_message(cal_key, title, _expanded_matches(cal_key, title, None))
+                return _multiple_matches_message(cal_key, title, _expanded_matches(cal_key, title, None)), None
+            result = _mutation_result_from_row(
+                operation="delete_series",
+                row=rows[0],
+                target_calendar=cal_key,
+            )
             conn.execute("DELETE FROM local_events WHERE id = ?", (rows[0]["id"],))
             return (
                 f"Deleted from {config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)}:\n"
                 f"  {title}\n  (not a recurring event — single occurrence deleted)"
-            )
+            ), result
 
         if len(recurring) > 1:
-            return _multiple_matches_message(cal_key, title, _expanded_matches(cal_key, title, None))
+            return _multiple_matches_message(cal_key, title, _expanded_matches(cal_key, title, None)), None
 
+        result = _mutation_result_from_row(
+            operation="delete_series",
+            row=recurring[0],
+            target_calendar=cal_key,
+        )
         conn.execute("DELETE FROM local_events WHERE id = ?", (recurring[0]["id"],))
-        return f"Deleted entire series from {config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)}:\n  {title}"
+        return f"Deleted entire series from {config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)}:\n  {title}", result
 
 
 def find_and_edit_event(
@@ -193,32 +295,49 @@ def find_and_edit_event(
     title: str,
     changes: dict,
 ) -> str:
+    message, _result = find_and_edit_event_result(service, cal_key, target_date, title, changes)
+    return message
+
+
+def find_and_edit_event_result(
+    service: LocalCalendarService,
+    cal_key: str,
+    target_date: date | None,
+    title: str,
+    changes: dict,
+) -> tuple[str, LocalMutationResult | None]:
+    _ = service
     matches = _expanded_matches(cal_key, title, target_date)
     cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
     search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
 
     if not matches:
-        if title and start_time:
-            return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
         if title:
-            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
-        if start_time:
-            return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
-        return f"❌ No matching event found in {cal_display} {search_desc}"
+            return f"❌ No event '{title}' found in {cal_display} {search_desc}", None
+        return f"❌ No matching event found in {cal_display} {search_desc}", None
     if len(matches) > 1:
-        return _multiple_matches_message(cal_key, title, matches, action="changed")
+        return _multiple_matches_message(cal_key, title, matches, action="changed"), None
 
     match = matches[0]
     if match.get("recurringEventId"):
-        return f"❌ Recurring event edits are not supported yet in the local backend. Use delete all and recreate the series."
+        return (
+            "❌ Recurring event edits are not supported yet in the local backend. "
+            "Use delete all and recreate the series."
+        ), None
 
     row = match["_source_row"]
+    old_title = row["summary"]
+    old_date = date.fromisoformat(row["start_date"])
+    old_end_date = date.fromisoformat(row["end_date"])
+    old_start_time = row["start_time"]
+    old_end_time = row["end_time"]
+    old_all_day = bool(row["all_day"])
     new_title = changes.get("title", row["summary"])
-    new_date = changes.get("date", date.fromisoformat(row["start_date"]))
+    new_date = changes.get("date", old_date)
     start_time = row["start_time"]
     end_time = row["end_time"]
     all_day = bool(row["all_day"])
-    end_date_value = date.fromisoformat(row["end_date"])
+    end_date_value = old_end_date
 
     if "start" in changes and "end" in changes:
         start_time = changes["start"]
@@ -250,22 +369,61 @@ def find_and_edit_event(
             ),
         )
 
-    if all_day:
-        time_disp = "All day"
-    else:
-        if end_date_value != new_date:
-            time_disp = (
-                f"{utils.format_short_day_date(new_date)} {start_time} – "
-                f"{utils.format_short_day_date(end_date_value)} {end_time}"
-            )
-        else:
-            time_disp = f"{start_time}–{end_time}"
+    before_summary = _format_mutation_event_summary(
+        old_title,
+        old_date,
+        old_end_date,
+        old_start_time,
+        old_end_time,
+        old_all_day,
+    )
+    after_summary = _format_mutation_event_summary(
+        new_title,
+        new_date,
+        end_date_value,
+        start_time,
+        end_time,
+        all_day,
+    )
     return (
         f"✅ Updated in {cal_display}:\n"
-        f"  {new_title}\n"
-        f"  {utils.format_short_day_date(new_date)}  {time_disp}"
+        f"Before:\n{before_summary}\n"
+        f"After:\n{after_summary}"
+    ), LocalMutationResult(
+        success=True,
+        operation="update",
+        local_event_id=row["id"],
+        target_calendar=cal_key,
+        title=new_title,
+        target_date=new_date,
+        start_time=start_time,
+        end_time=end_time,
+        all_day=all_day,
+        recurrence=json.loads(row["recurrence_json"] or "[]"),
     )
 
+
+def _format_mutation_event_summary(
+    title: str,
+    start_date: date,
+    end_date_value: date,
+    start_time: str | None,
+    end_time: str | None,
+    all_day: bool,
+) -> str:
+    if all_day:
+        time_disp = "All day"
+    elif end_date_value != start_date:
+        time_disp = (
+            f"{utils.format_short_day_date(start_date)} {start_time} – "
+            f"{utils.format_short_day_date(end_date_value)} {end_time}"
+        )
+    else:
+        time_disp = f"{start_time}–{end_time}"
+    return (
+        f"  {title}\n"
+        f"  {utils.format_short_day_date(start_date)}  {time_disp}"
+    )
 
 
 
@@ -276,15 +434,33 @@ def move_event(
     target_date: date | None,
     title: str,
 ) -> str:
+    message, _result = move_event_result(
+        service,
+        source_cal_key,
+        target_cal_key,
+        target_date,
+        title,
+    )
+    return message
+
+
+def move_event_result(
+    service: LocalCalendarService,
+    source_cal_key: str,
+    target_cal_key: str,
+    target_date: date | None,
+    title: str,
+) -> tuple[str, LocalMutationResult | None]:
+    _ = service
     matches = _expanded_matches(source_cal_key, title, target_date)
     source_display = config.CALENDAR_DISPLAY_NAMES.get(source_cal_key, source_cal_key)
     target_display = config.CALENDAR_DISPLAY_NAMES.get(target_cal_key, target_cal_key)
     search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
 
     if not matches:
-        return f"❌ No event '{title}' found in {source_display} {search_desc}"
+        return f"❌ No event '{title}' found in {source_display} {search_desc}", None
     if len(matches) > 1:
-        return _multiple_matches_message(source_cal_key, title, matches, action="moved")
+        return _multiple_matches_message(source_cal_key, title, matches, action="moved"), None
 
     match = matches[0]
     row = match["_source_row"]
@@ -306,6 +482,11 @@ def move_event(
         f"✅ Moved from {source_display} to {target_display}:\n"
         f"  {title}\n"
         f"  {date_disp}  {time_disp}"
+    ), _mutation_result_from_row(
+        operation="move",
+        row=row,
+        target_calendar=target_cal_key,
+        source_calendar=source_cal_key,
     )
 
 def find_and_delete_event(
@@ -315,33 +496,56 @@ def find_and_delete_event(
     title: str | None,
     start_time: str | None = None,
 ) -> str:
+    message, _result = find_and_delete_event_result(
+        service,
+        cal_key,
+        target_date,
+        title,
+        start_time=start_time,
+    )
+    return message
+
+
+def find_and_delete_event_result(
+    service: LocalCalendarService,
+    cal_key: str,
+    target_date: date | None,
+    title: str | None,
+    start_time: str | None = None,
+) -> tuple[str, LocalMutationResult | None]:
+    _ = service
     matches = _expanded_matches(cal_key, title, target_date, start_time=start_time)
     cal_display = config.CALENDAR_DISPLAY_NAMES.get(cal_key, cal_key)
     search_desc = f"on {target_date.strftime('%d-%m-%Y')}" if target_date else "in the next 90 days"
 
     if not matches:
         if title and start_time:
-            return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}"
+            return f"❌ No event '{title}' at {start_time} found in {cal_display} {search_desc}", None
         if title:
-            return f"❌ No event '{title}' found in {cal_display} {search_desc}"
+            return f"❌ No event '{title}' found in {cal_display} {search_desc}", None
         if start_time:
-            return f"❌ No event at {start_time} found in {cal_display} {search_desc}"
-        return f"❌ No matching event found in {cal_display} {search_desc}"
+            return f"❌ No event at {start_time} found in {cal_display} {search_desc}", None
+        return f"❌ No matching event found in {cal_display} {search_desc}", None
     if len(matches) > 1:
         if target_date is None and any(match.get("recurringEventId") for match in matches):
-            return f"❌ Specify a date to delete one occurrence from a recurring event in {cal_display}."
-        return _multiple_matches_message(cal_key, title, matches, action="deleted")
+            return f"❌ Specify a date to delete one occurrence from a recurring event in {cal_display}.", None
+        return _multiple_matches_message(cal_key, title, matches, action="deleted"), None
 
     match = matches[0]
     if match.get("recurringEventId"):
-        return delete_recurring_occurrence(service, cal_key, target_date, title, start_time=start_time)
+        return delete_recurring_occurrence(service, cal_key, target_date, title, start_time=start_time), None
 
     row = match["_source_row"]
+    result = _mutation_result_from_row(
+        operation="delete",
+        row=row,
+        target_calendar=cal_key,
+    )
     with _connect() as conn:
         conn.execute("DELETE FROM local_events WHERE id = ?", (row["id"],))
     match_date = utils.format_short_day_date(date.fromisoformat(row["start_date"]))
     deleted_title = title or match.get('summary') or '(no title)'
-    return f"Deleted from {cal_display}:\n  {deleted_title}\n  {match_date}"
+    return f"Deleted from {cal_display}:\n  {deleted_title}\n  {match_date}", result
 
 
 def search_events(service: LocalCalendarService, keyword: str, days: int = 90) -> list[dict]:
@@ -525,6 +729,28 @@ def _find_exact_duplicate(
             1 if all_day else 0,
         ),
     ).fetchone()
+
+
+def _mutation_result_from_row(
+    *,
+    operation: str,
+    row,
+    target_calendar: str,
+    source_calendar: str | None = None,
+) -> LocalMutationResult:
+    return LocalMutationResult(
+        success=True,
+        operation=operation,
+        local_event_id=row["id"],
+        target_calendar=target_calendar,
+        source_calendar=source_calendar,
+        title=row["summary"],
+        target_date=date.fromisoformat(row["start_date"]),
+        start_time=row["start_time"],
+        end_time=row["end_time"],
+        all_day=bool(row["all_day"]),
+        recurrence=json.loads(row["recurrence_json"] or "[]"),
+    )
 
 
 def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_type: str) -> None:

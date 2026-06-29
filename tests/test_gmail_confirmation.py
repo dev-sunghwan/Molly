@@ -7,8 +7,13 @@ from intent_models import IntentAction
 
 
 class FakeRepo:
+    backend_name = "fake"
+
     def add_event(self, command):
         return f"Added to YounHa: {command['title']}"
+
+    def add_event_result(self, command):
+        return self.add_event(command), None
 
 
 def setup_function():
