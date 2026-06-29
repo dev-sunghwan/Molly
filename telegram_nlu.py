@@ -223,7 +223,7 @@ def _resolution_from_draft(
 
 def _parse_view_request(text: str, lowered: str) -> IntentResolution | None:
     explicit_month_command = None
-    if any(keyword in lowered for keyword in ["schedule", "calendar", "show me", "everything for"]):
+    if any(keyword in lowered for keyword in ["schedule", "calendar", "show me", "everything for", "일정", "스케줄"]):
         explicit_month_command = _normalize_explicit_month_command(lowered)
     if explicit_month_command is not None:
         return _ready(
@@ -456,6 +456,19 @@ def _normalize_range_command(value: str) -> str | None:
 
 
 def _normalize_explicit_month_command(lowered: str) -> str | None:
+    korean_month_match = re.search(r"(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월", lowered)
+    if korean_month_match is not None:
+        year_text = korean_month_match.group(1)
+        month_number = int(korean_month_match.group(2))
+        if 1 <= month_number <= 12:
+            today = utils._today_local()
+            target_year = int(year_text) if year_text else today.year
+            month_delta = (target_year - today.year) * 12 + (month_number - today.month)
+            if month_delta == 0:
+                return "month"
+            if month_delta >= 0:
+                return f"month:{target_year:04d}-{month_number:02d}"
+
     cleaned = re.sub(r"[^a-z0-9 ]+", " ", lowered)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:

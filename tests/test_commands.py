@@ -318,6 +318,11 @@ def test_month_next():
     assert commands.parse("month next") == {"cmd": "month_next"}
 
 
+def test_month_explicit_numeric_and_name():
+    assert commands.parse("month 2026-07") == {"cmd": "month_explicit", "year": 2026, "month": 7}
+    assert commands.parse("month july 2026") == {"cmd": "month_explicit", "year": 2026, "month": 7}
+
+
 # ── search ────────────────────────────────────────────────────────────────────
 
 def test_search_basic():

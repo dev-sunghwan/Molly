@@ -65,6 +65,15 @@ def command_to_intent(command: dict, raw_input: str = "") -> IntentResolution:
         )
         return _ready(intent)
 
+    if cmd == "month_explicit":
+        intent = ScheduleIntent(
+            action=IntentAction.VIEW_RANGE,
+            source=IntentSource.TELEGRAM_COMMAND,
+            raw_input=raw_input,
+            metadata={"command": f"month:{int(command['year']):04d}-{int(command['month']):02d}"},
+        )
+        return _ready(intent)
+
     if cmd in {"week", "week_next", "month", "month_remaining", "month_next", "upcoming", "next"}:
         action = IntentAction.VIEW_RANGE
         intent = ScheduleIntent(

@@ -764,14 +764,18 @@ def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, 
 
 
 def _expand_events(start_date: date, end_date: date, calendar_key: str | None = None) -> list[dict]:
-    query = "SELECT * FROM local_events"
-    params: tuple = ()
+    where = [
+        "(recurrence_json IS NOT NULL AND recurrence_json != '' AND recurrence_json != '[]'"
+        " OR NOT (end_date < ? OR start_date > ?))"
+    ]
+    params: list[object] = [start_date.isoformat(), end_date.isoformat()]
     if calendar_key is not None:
-        query += " WHERE calendar_key = ?"
-        params = (calendar_key,)
+        where.append("calendar_key = ?")
+        params.append(calendar_key)
+    query = f"SELECT * FROM local_events WHERE {' AND '.join(where)}"
 
     with _connect() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query, tuple(params)).fetchall()
 
     all_events: list[dict] = []
     for row in rows:

@@ -86,7 +86,7 @@ def main() -> None:
     )
 
     view_parser = subparsers.add_parser("view", help="View events")
-    view_parser.add_argument("--scope", required=True, choices=["today", "tomorrow", "date", "next", "upcoming", "week", "week_next", "month", "month_next"])
+    view_parser.add_argument("--scope", required=True, choices=["today", "tomorrow", "date", "next", "upcoming", "week", "week_next", "month", "month_remaining", "month_next"])
     view_parser.add_argument("--calendar")
     view_parser.add_argument("--date")
     view_parser.add_argument("--limit", type=int)

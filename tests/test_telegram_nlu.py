@@ -210,6 +210,33 @@ def test_structured_draft_with_month_name_maps_to_explicit_future_month():
     assert resolution.status == ResolutionStatus.READY
     assert resolution.intent.metadata["command"] == "month:2026-07"
 
+
+def test_korean_month_number_view_request_maps_to_explicit_month():
+    resolution = telegram_nlu.parse_free_text_to_intent("7월 일정 보여줘")
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.VIEW_RANGE
+    assert resolution.intent.metadata["command"] == "month:2026-07"
+
+
+def test_structured_draft_with_korean_month_number_maps_to_explicit_month():
+    draft = ExtractedTelegramDraft(
+        action="view_range",
+        target_date_text="7월",
+        confidence=0.9,
+    )
+
+    resolution = telegram_nlu.parse_free_text_to_intent(
+        "7월 일정 보여줘",
+        extracted_draft=draft,
+    )
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.metadata["command"] == "month:2026-07"
+
+
 def test_structured_draft_can_drive_view_range():
     draft = ExtractedTelegramDraft(
         action="view_range",

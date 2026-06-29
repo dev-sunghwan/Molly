@@ -201,6 +201,10 @@ def parse(text: str) -> dict:
     if lower == "month next":
         return {"cmd": "month_next"}
 
+    explicit_month = _parse_explicit_month_command(lower)
+    if explicit_month is not None:
+        return explicit_month
+
     if lower == "next":
         return {"cmd": "next", "calendar": None}
 
@@ -250,6 +254,52 @@ def parse(text: str) -> dict:
 
     # ── unrecognised ──────────────────────────────────────────────────────────
     return {"error": USAGE}
+
+
+
+def _parse_explicit_month_command(lower: str) -> dict | None:
+    if not lower.startswith("month "):
+        return None
+    value = lower[6:].strip()
+    if not value:
+        return None
+
+    iso_match = re.fullmatch(r"(\d{4})-(\d{1,2})", value)
+    if iso_match:
+        year = int(iso_match.group(1))
+        month = int(iso_match.group(2))
+        if 1 <= month <= 12:
+            return {"cmd": "month_explicit", "year": year, "month": month}
+        return {"error": "Month must be 1-12"}
+
+    numeric_match = re.fullmatch(r"(\d{1,2})(?:/(\d{4}))?", value)
+    if numeric_match:
+        month = int(numeric_match.group(1))
+        year = int(numeric_match.group(2) or utils._today_local().year)
+        if 1 <= month <= 12:
+            return {"cmd": "month_explicit", "year": year, "month": month}
+        return {"error": "Month must be 1-12"}
+
+    month_names = {
+        "jan": 1, "january": 1,
+        "feb": 2, "february": 2,
+        "mar": 3, "march": 3,
+        "apr": 4, "april": 4,
+        "may": 5,
+        "jun": 6, "june": 6,
+        "jul": 7, "july": 7,
+        "aug": 8, "august": 8,
+        "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10,
+        "nov": 11, "november": 11,
+        "dec": 12, "december": 12,
+    }
+    parts = value.split()
+    if parts and parts[0] in month_names:
+        year = int(parts[1]) if len(parts) > 1 and re.fullmatch(r"\d{4}", parts[1]) else utils._today_local().year
+        return {"cmd": "month_explicit", "year": year, "month": month_names[parts[0]]}
+
+    return None
 
 
 def _parse_add(text: str) -> dict:
