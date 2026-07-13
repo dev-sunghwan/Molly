@@ -1,13 +1,13 @@
 """
-Create one event through Molly Core using shell-friendly argv flags.
+Legacy create-event CLI.
 
-This script is designed for OpenClaw's `exec` tool usage, where passing a
-simple command with explicit flags is easier than streaming JSON over stdin.
+The canonical runtime entrypoint is now `scripts/molly_schedule_action.py
+create`. This compatibility wrapper preserves older commands while keeping the
+execution path in one place.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -15,15 +15,16 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from calendar_repository import CalendarRepository
-import config
-from molly_core import MollyCore
-from molly_core_requests import resolution_from_request
-import state_store
+from scripts import molly_schedule_action  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create one event through Molly Core")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Create one event through Molly. Deprecated: use "
+            "scripts/molly_schedule_action.py create for new integrations."
+        )
+    )
     parser.add_argument("--calendar", required=True)
     parser.add_argument("--title", required=True)
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
@@ -34,6 +35,7 @@ def main() -> None:
     parser.add_argument("--nlu", default="openclaw")
     parser.add_argument("--request-source", default="openclaw_exec_tool")
     parser.add_argument("--actor-user-id", type=int)
+    parser.add_argument("--actor-name")
     parser.add_argument(
         "--recurrence",
         action="append",
@@ -45,54 +47,61 @@ def main() -> None:
         choices=["MO", "TU", "WE", "TH", "FR", "SA", "SU"],
         help="Convenience alias for a weekly recurring event on one weekday",
     )
+    parser.add_argument("--request-id", help="Stable inbound request id for command journaling")
+    parser.add_argument("--source", default="openclaw", help="Inbound source")
+    parser.add_argument("--source-message-id")
+    parser.add_argument("--source-user-id")
+    parser.add_argument("--source-user-name")
+    parser.add_argument("--source-channel-id")
     args = parser.parse_args()
 
-    recurrence = list(args.recurrence or [])
-    if args.weekly_day:
-        recurrence.append(f"RRULE:FREQ=WEEKLY;BYDAY={args.weekly_day}")
+    delegated = [
+        "molly_schedule_action.py",
+        "create",
+        "--calendar",
+        args.calendar,
+        "--title",
+        args.title,
+        "--date",
+        args.date,
+        "--start",
+        args.start,
+        "--end",
+        args.end,
+        "--raw-input",
+        args.raw_input,
+        "--nlu",
+        args.nlu,
+        "--request-source",
+        args.request_source,
+    ]
+    _append_optional(delegated, "--end-date", args.end_date)
+    _append_optional(delegated, "--actor-user-id", args.actor_user_id)
+    _append_optional(delegated, "--actor-name", args.actor_name)
+    _append_optional(delegated, "--request-id", args.request_id)
+    _append_optional(delegated, "--source", args.source)
+    _append_optional(delegated, "--source-message-id", args.source_message_id)
+    _append_optional(delegated, "--source-user-id", args.source_user_id)
+    _append_optional(delegated, "--source-user-name", args.source_user_name)
+    _append_optional(delegated, "--source-channel-id", args.source_channel_id)
+    for recurrence in args.recurrence or []:
+        delegated.extend(["--recurrence", recurrence])
+    _append_optional(delegated, "--weekly-day", args.weekly_day)
 
-    payload = {
-        "action": "create_event",
-        "target_calendar": args.calendar,
-        "title": args.title,
-        "target_date": args.date,
-        "start_time": args.start,
-        "end_time": args.end,
-        "all_day": False,
-        "raw_input": args.raw_input,
-        "nlu": args.nlu,
-        "request_source": args.request_source,
-    }
-    if args.end_date:
-        payload["end_date"] = args.end_date
-    if recurrence:
-        payload["recurrence"] = recurrence
+    original_argv = sys.argv
+    try:
+        sys.argv = delegated
+        molly_schedule_action.main()
+    finally:
+        sys.argv = original_argv
 
-    config.validate()
-    state_store.init_db()
-    calendar_repo = CalendarRepository.from_config()
-    core = MollyCore(calendar_repo)
-    resolution = resolution_from_request(payload)
-    message = core.execute_resolution(resolution, user_id=args.actor_user_id)
-    success = not message.startswith("❌")
-    if args.actor_user_id is not None:
-        try:
-            import spouse_notifications
 
-            spouse_notifications.notify_spouse_sync(args.actor_user_id, resolution.intent, success)
-        except Exception:
-            pass
-
-    print(
-        json.dumps(
-            {
-                "success": success,
-                "action": resolution.intent.action.value,
-                "message": message,
-            },
-            ensure_ascii=False,
-        )
-    )
+def _append_optional(command: list[str], flag: str, value) -> None:
+    if value is None:
+        return
+    text = str(value)
+    if text:
+        command.extend([flag, text])
 
 
 if __name__ == "__main__":

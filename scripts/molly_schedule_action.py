@@ -163,6 +163,14 @@ def main() -> None:
     gmail_ignore_parser.add_argument("--actor-user-id", type=int)
     gmail_ignore_parser.add_argument("--actor-name")
 
+    gmail_notify_parser = subparsers.add_parser(
+        "gmail-notify-pending",
+        help="Send Telegram notifications for pending Gmail candidates",
+    )
+    gmail_notify_parser.add_argument("--limit", type=int, default=20)
+    gmail_notify_parser.add_argument("--actor-user-id", type=int)
+    gmail_notify_parser.add_argument("--actor-name")
+
     args = parser.parse_args()
 
     if args.subcommand.startswith("gmail-"):
@@ -525,6 +533,16 @@ def _execute_gmail_args(args: argparse.Namespace) -> dict:
             "success": not message.startswith("❌"),
             "action": "gmail_ignore",
             "message": message,
+        }
+
+    if args.subcommand == "gmail-notify-pending":
+        bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+        sent = gmail_confirmation.notify_pending_candidates(bot, limit=args.limit)
+        return {
+            "success": True,
+            "action": "gmail_notify_pending",
+            "message": f"Sent Gmail candidate notifications: {len(sent)}",
+            "notification_count": len(sent),
         }
 
     raise SystemExit(f"Unsupported Gmail subcommand: {args.subcommand}")

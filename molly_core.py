@@ -98,6 +98,30 @@ class MollyCore:
                 message = utils.format_month(events, first, last)
                 self._record_result(intent, message, user_id)
                 return message
+            if isinstance(cmd_name, str) and cmd_name.startswith("month_remaining:"):
+                from datetime import date
+                month_value = cmd_name.split(":", 1)[1]
+                year_text, month_text = month_value.split("-", 1)
+                year = int(year_text)
+                month = int(month_text)
+                first = date(year, month, 1)
+                if month == 12:
+                    last = date(year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    last = date(year, month + 1, 1) - timedelta(days=1)
+
+                today = utils._today_local()
+                if today > last:
+                    events = []
+                    message = utils.format_month(events, first, last)
+                else:
+                    query_first = today if first <= today <= last else first
+                    events = self.calendar_repo.list_events_range(query_first, last)
+                    if query_first == today:
+                        events = utils.filter_events_from_now(events)
+                    message = utils.format_month(events, query_first, last)
+                self._record_result(intent, message, user_id)
+                return message
             if cmd_name == "next":
                 if intent.target_calendar is None:
                     events = self.calendar_repo.get_upcoming_events(

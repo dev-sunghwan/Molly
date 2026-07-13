@@ -313,6 +313,20 @@ def test_month():
 def test_month_remaining():
     assert commands.parse("month remaining") == {"cmd": "month_remaining"}
     assert commands.parse("REMAINING MONTH") == {"cmd": "month_remaining"}
+    assert commands.parse("이번 달 남은 일정") == {"cmd": "month_remaining"}
+
+
+def test_explicit_month_remaining_korean():
+    assert commands.parse("남은 7월 일정 알려줘") == {
+        "cmd": "month_remaining_explicit",
+        "year": utils._today_local().year,
+        "month": 7,
+    }
+    assert commands.parse("2026년 7월 남은 일정") == {
+        "cmd": "month_remaining_explicit",
+        "year": 2026,
+        "month": 7,
+    }
 
 def test_month_next():
     assert commands.parse("month next") == {"cmd": "month_next"}

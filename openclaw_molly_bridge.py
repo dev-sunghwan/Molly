@@ -20,7 +20,6 @@ from typing import Any, Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 MOLLY_CORE_EXECUTE = PROJECT_ROOT / "scripts" / "molly_core_execute.py"
-MOLLY_CREATE_EVENT_EXEC = PROJECT_ROOT / "scripts" / "molly_create_event.py"
 MOLLY_SCHEDULE_ACTION_EXEC = PROJECT_ROOT / "scripts" / "molly_schedule_action.py"
 PROJECT_VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
 

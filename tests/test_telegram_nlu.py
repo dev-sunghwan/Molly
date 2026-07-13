@@ -58,6 +58,16 @@ def test_korean_create_request_needs_time_clarification():
     assert "time_range" in resolution.missing_fields
 
 
+def _next_month_year_month():
+    today = utils._today_local()
+    month = today.month + 1
+    year = today.year
+    if month == 13:
+        month = 1
+        year += 1
+    return year, month
+
+
 def test_clarification_state_can_fill_time_range():
     resolution = telegram_nlu.parse_free_text_to_intent("내일 윤하 테니스 넣어줘")
     clarification_state.set_pending(999, resolution)
@@ -168,12 +178,14 @@ def test_english_month_name_view_request_maps_to_current_month_when_same_month()
 
 
 def test_english_month_name_view_request_maps_to_explicit_future_month():
-    resolution = telegram_nlu.parse_free_text_to_intent("Show me July schedule")
+    year, month = _next_month_year_month()
+    month_name = calendar.month_name[month]
+    resolution = telegram_nlu.parse_free_text_to_intent(f"Show me {month_name} {year} schedule")
 
     assert resolution is not None
     assert resolution.status == ResolutionStatus.READY
     assert resolution.intent.action == IntentAction.VIEW_RANGE
-    assert resolution.intent.metadata["command"] == "month:2026-07"
+    assert resolution.intent.metadata["command"] == f"month:{year:04d}-{month:02d}"
 
 
 def test_structured_draft_with_month_name_maps_to_current_month_when_same_month():
@@ -195,46 +207,60 @@ def test_structured_draft_with_month_name_maps_to_current_month_when_same_month(
 
 
 def test_structured_draft_with_month_name_maps_to_explicit_future_month():
+    year, month = _next_month_year_month()
+    month_name = calendar.month_name[month]
     draft = ExtractedTelegramDraft(
         action="view_range",
-        target_date_text="July",
+        target_date_text=f"{month_name} {year}",
         confidence=0.9,
     )
 
     resolution = telegram_nlu.parse_free_text_to_intent(
-        "Show me July schedule",
+        f"Show me {month_name} schedule",
         extracted_draft=draft,
     )
 
     assert resolution is not None
     assert resolution.status == ResolutionStatus.READY
-    assert resolution.intent.metadata["command"] == "month:2026-07"
+    assert resolution.intent.metadata["command"] == f"month:{year:04d}-{month:02d}"
 
 
 def test_korean_month_number_view_request_maps_to_explicit_month():
-    resolution = telegram_nlu.parse_free_text_to_intent("7월 일정 보여줘")
+    year, month = _next_month_year_month()
+    resolution = telegram_nlu.parse_free_text_to_intent(f"{year}년 {month}월 일정 보여줘")
 
     assert resolution is not None
     assert resolution.status == ResolutionStatus.READY
     assert resolution.intent.action == IntentAction.VIEW_RANGE
-    assert resolution.intent.metadata["command"] == "month:2026-07"
+    assert resolution.intent.metadata["command"] == f"month:{year:04d}-{month:02d}"
 
 
 def test_structured_draft_with_korean_month_number_maps_to_explicit_month():
+    year, month = _next_month_year_month()
     draft = ExtractedTelegramDraft(
         action="view_range",
-        target_date_text="7월",
+        target_date_text=f"{year}년 {month}월",
         confidence=0.9,
     )
 
     resolution = telegram_nlu.parse_free_text_to_intent(
-        "7월 일정 보여줘",
+        f"{month}월 일정 보여줘",
         extracted_draft=draft,
     )
 
     assert resolution is not None
     assert resolution.status == ResolutionStatus.READY
-    assert resolution.intent.metadata["command"] == "month:2026-07"
+    assert resolution.intent.metadata["command"] == f"month:{year:04d}-{month:02d}"
+
+
+def test_korean_explicit_remaining_month_view_request():
+    year, month = _next_month_year_month()
+    resolution = telegram_nlu.parse_free_text_to_intent(f"{year}년 {month}월 남은 일정 보여줘")
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.VIEW_RANGE
+    assert resolution.intent.metadata["command"] == f"month_remaining:{year:04d}-{month:02d}"
 
 
 def test_structured_draft_can_drive_view_range():

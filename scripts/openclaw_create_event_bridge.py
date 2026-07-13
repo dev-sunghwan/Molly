@@ -1,5 +1,9 @@
 """
-Bridge one Telegram scheduling message through OpenClaw and into Molly Core.
+Legacy one-shot OpenClaw create-event bridge.
+
+Current live Telegram/Slack operation should call `scripts/molly_schedule_action.py`
+directly through OpenClaw exec instructions. This script remains as a narrow
+compatibility/debug entrypoint for the older create-only bridge.
 
 Usage:
   ./.venv/bin/python scripts/openclaw_create_event_bridge.py "내일 오후 5시에 윤하 테니스 넣어줘"

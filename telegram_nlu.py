@@ -222,9 +222,20 @@ def _resolution_from_draft(
 
 
 def _parse_view_request(text: str, lowered: str) -> IntentResolution | None:
+    explicit_remaining_month_command = None
     explicit_month_command = None
     if any(keyword in lowered for keyword in ["schedule", "calendar", "show me", "everything for", "일정", "스케줄"]):
+        explicit_remaining_month_command = _normalize_explicit_remaining_month_command(lowered)
         explicit_month_command = _normalize_explicit_month_command(lowered)
+    if explicit_remaining_month_command is not None:
+        return _ready(
+            ScheduleIntent(
+                action=IntentAction.VIEW_RANGE,
+                source=IntentSource.TELEGRAM_FREE_TEXT,
+                raw_input=text,
+                metadata={"command": explicit_remaining_month_command, "nlu": "telegram"},
+            )
+        )
     if explicit_month_command is not None:
         return _ready(
             ScheduleIntent(
@@ -452,7 +463,26 @@ def _normalize_range_command(value: str) -> str | None:
     mapped = mapping.get(lowered)
     if mapped is not None:
         return mapped
+    explicit_remaining = _normalize_explicit_remaining_month_command(lowered)
+    if explicit_remaining is not None:
+        return explicit_remaining
     return _normalize_explicit_month_command(lowered)
+
+
+def _normalize_explicit_remaining_month_command(lowered: str) -> str | None:
+    has_remaining = "남은" in lowered or "remaining" in lowered or "rest of" in lowered
+    if not has_remaining:
+        return None
+
+    explicit = _normalize_explicit_month_command(lowered)
+    if explicit is None:
+        return None
+    if explicit == "month":
+        today = utils._today_local()
+        return f"month_remaining:{today.year:04d}-{today.month:02d}"
+    if explicit.startswith("month:"):
+        return "month_remaining:" + explicit.split(":", 1)[1]
+    return None
 
 
 def _normalize_explicit_month_command(lowered: str) -> str | None:

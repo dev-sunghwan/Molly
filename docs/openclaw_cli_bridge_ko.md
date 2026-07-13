@@ -4,6 +4,8 @@
 
 이 단계의 목적은 OpenClaw가 해석한 `create_event` 요청을 Molly Core의 deterministic execution layer로 넘길 수 있는 첫 번째 실제 브리지를 만드는 것이다.
 
+> 현재 운영 기준에서는 이 create-only bridge가 canonical path가 아니다. live Telegram/Slack 경로는 `scripts/molly_schedule_action.py`를 직접 호출한다. 이 문서는 초기 브리지 설계 기록으로 남긴다.
+
 ## 현재 범위
 
 이번 브리지는 의도적으로 범위를 좁게 잡는다.

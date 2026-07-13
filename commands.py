@@ -195,8 +195,17 @@ def parse(text: str) -> dict:
     if lower == "month":
         return {"cmd": "month"}
 
-    if lower in ("month remaining", "remaining month"):
+    if lower in ("month remaining", "remaining month") or lower in (
+        "남은 이번 달 일정",
+        "남은 이번달 일정",
+        "이번 달 남은 일정",
+        "이번달 남은 일정",
+    ):
         return {"cmd": "month_remaining"}
+
+    explicit_remaining_month = _parse_explicit_remaining_month_command(lower)
+    if explicit_remaining_month is not None:
+        return explicit_remaining_month
 
     if lower == "month next":
         return {"cmd": "month_next"}
@@ -255,6 +264,37 @@ def parse(text: str) -> dict:
     # ── unrecognised ──────────────────────────────────────────────────────────
     return {"error": USAGE}
 
+
+
+def _parse_explicit_remaining_month_command(lower: str) -> dict | None:
+    if "남은" in lower:
+        year_match = re.search(r"(\d{4})\s*년", lower)
+        month_match = re.search(r"(\d{1,2})\s*월", lower)
+        if month_match:
+            month = int(month_match.group(1))
+            year = int(year_match.group(1)) if year_match else utils._today_local().year
+            if 1 <= month <= 12:
+                return {"cmd": "month_remaining_explicit", "year": year, "month": month}
+            return {"error": "Month must be 1-12"}
+
+    if "remaining" not in lower:
+        return None
+
+    value = lower
+    for token in ("remaining", "schedule", "calendar", "events", "event", "for", "of", "the"):
+        value = re.sub(rf"\b{token}\b", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    if not value:
+        return None
+
+    explicit = _parse_explicit_month_command(f"month {value}")
+    if explicit and explicit.get("cmd") == "month_explicit":
+        return {
+            "cmd": "month_remaining_explicit",
+            "year": explicit["year"],
+            "month": explicit["month"],
+        }
+    return None
 
 
 def _parse_explicit_month_command(lower: str) -> dict | None:

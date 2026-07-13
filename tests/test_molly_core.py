@@ -86,6 +86,54 @@ def test_molly_core_executes_remaining_month_from_today(monkeypatch, tmp_path):
         assert "Past this month" not in message
 
 
+
+def test_molly_core_executes_explicit_remaining_month_from_today(monkeypatch, tmp_path):
+    from datetime import date, datetime
+
+    monkeypatch.setattr(config, "CALENDAR_BACKEND", "local")
+    monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
+    monkeypatch.setattr(config, "STATE_DB_PATH", tmp_path / "molly_state.db")
+    monkeypatch.setattr(
+        utils,
+        "_now_local",
+        lambda: utils.TZ.localize(datetime(2026, 7, 13, 12, 0)),
+    )
+
+    state_store.init_db()
+    repo = CalendarRepository.from_config()
+    core = MollyCore(repo)
+
+    service = repo.service
+    repo.backend_module.add_event(
+        service,
+        {"calendar": "family", "title": "Past July", "date": date(2026, 7, 5), "start": "09:00", "end": "10:00"},
+    )
+    repo.backend_module.add_event(
+        service,
+        {"calendar": "family", "title": "Future July", "date": date(2026, 7, 20), "start": "09:00", "end": "10:00"},
+    )
+    repo.backend_module.add_event(
+        service,
+        {"calendar": "family", "title": "August event", "date": date(2026, 8, 1), "start": "09:00", "end": "10:00"},
+    )
+
+    resolution = IntentResolution(
+        status=ResolutionStatus.READY,
+        intent=ScheduleIntent(
+            action=IntentAction.VIEW_RANGE,
+            source=IntentSource.TELEGRAM_FREE_TEXT,
+            raw_input="남은 7월 일정 알려줘",
+            metadata={"command": "month_remaining:2026-07"},
+        ),
+    )
+
+    message = core.execute_resolution(resolution, user_id=123)
+
+    assert "July 2026" in message
+    assert "Future July" in message
+    assert "Past July" not in message
+    assert "August event" not in message
+
 def test_molly_core_includes_all_actor_reminder_calendars_for_upcoming(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "CALENDAR_BACKEND", "local")
     monkeypatch.setattr(config, "LOCAL_CALENDAR_DB_PATH", tmp_path / "local_calendar.db")
