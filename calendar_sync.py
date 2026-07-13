@@ -61,8 +61,9 @@ def sync_local_to_google(
 
     selected = set(calendar_keys or config.CALENDARS.keys())
     google_events_by_calendar = {
-        calendar_key: google_calendar_backend.list_events_range(
+        calendar_key: google_calendar_backend.list_events_range_for_calendar(
             google_service,
+            calendar_key,
             start_date,
             end_date,
         )
@@ -430,12 +431,12 @@ def _google_events_for_calendar(
     start_date: date,
     end_date: date,
 ) -> list[dict]:
-    events = google_calendar_backend.list_events_range(service, start_date, end_date)
-    return [
-        event
-        for event in events
-        if _calendar_key_from_event(event) == calendar_key
-    ]
+    return google_calendar_backend.list_events_range_for_calendar(
+        service,
+        calendar_key,
+        start_date,
+        end_date,
+    )
 
 
 def _to_google_add_command(event: LocalEventForSync) -> dict:

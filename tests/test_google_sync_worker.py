@@ -18,7 +18,7 @@ def test_process_google_sync_outbox_inserts_create(monkeypatch):
     monkeypatch.setattr(calendar_sync.google_calendar_backend, "authenticate", lambda: object())
     monkeypatch.setattr(
         calendar_sync.google_calendar_backend,
-        "list_events_range",
+        "list_events_range_for_calendar",
         lambda *_args: [],
     )
     monkeypatch.setattr(
@@ -64,7 +64,7 @@ def test_process_google_sync_outbox_records_google_event_id_after_insert(monkeyp
     )
     monkeypatch.setattr(calendar_sync.google_calendar_backend, "authenticate", lambda: object())
 
-    def fake_list_events_range(*_args):
+    def fake_list_events_range_for_calendar(*_args):
         if not calls:
             return []
         return [
@@ -80,8 +80,8 @@ def test_process_google_sync_outbox_records_google_event_id_after_insert(monkeyp
 
     monkeypatch.setattr(
         calendar_sync.google_calendar_backend,
-        "list_events_range",
-        fake_list_events_range,
+        "list_events_range_for_calendar",
+        fake_list_events_range_for_calendar,
     )
     monkeypatch.setattr(
         calendar_sync.google_calendar_backend,
@@ -159,7 +159,7 @@ def test_process_google_sync_outbox_skips_existing(monkeypatch):
     monkeypatch.setattr(calendar_sync.google_calendar_backend, "authenticate", lambda: object())
     monkeypatch.setattr(
         calendar_sync.google_calendar_backend,
-        "list_events_range",
+        "list_events_range_for_calendar",
         lambda *_args: [
             {
                 "_calendar_name": "Family",

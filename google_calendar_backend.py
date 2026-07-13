@@ -48,32 +48,49 @@ def authenticate():
 
 def list_events_range(service, start_date: date, end_date: date) -> list[dict]:
     """Return all events from start_date to end_date (inclusive) across all calendars."""
+    all_events: list[dict] = []
+    for name in config.CALENDARS:
+        all_events.extend(list_events_range_for_calendar(service, name, start_date, end_date))
+
+    all_events.sort(key=_sort_key)
+    return all_events
+
+
+def list_events_range_for_calendar(
+    service,
+    calendar_key: str,
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    """Return events from one configured calendar in the inclusive date range."""
+    calendar_key = calendar_key.lower()
+    cal_id = config.CALENDARS[calendar_key]
+    cal_display = config.CALENDAR_DISPLAY_NAMES.get(calendar_key, calendar_key)
     tz = utils.TZ
     time_min = tz.localize(datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)).isoformat()
     time_max = tz.localize(datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)).isoformat()
 
-    all_events: list[dict] = []
-    for name, cal_id in config.CALENDARS.items():
-        try:
-            result = (
-                service.events()
-                .list(
-                    calendarId=cal_id,
-                    timeMin=time_min,
-                    timeMax=time_max,
-                    singleEvents=True,
-                    orderBy="startTime",
-                )
-                .execute()
+    try:
+        result = (
+            service.events()
+            .list(
+                calendarId=cal_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
             )
-            for event in result.get("items", []):
-                event["_calendar_name"] = config.CALENDAR_DISPLAY_NAMES.get(name, name)
-                all_events.append(event)
-        except HttpError as e:
-            print(f"[GCal] Error reading calendar '{name}': {e}")
+            .execute()
+        )
+    except HttpError as e:
+        print(f"[GCal] Error reading calendar {calendar_key!r}: {e}")
+        return []
 
-    all_events.sort(key=_sort_key)
-    return all_events
+    events = result.get("items", [])
+    for event in events:
+        event["_calendar_name"] = cal_display
+    events.sort(key=_sort_key)
+    return events
 
 
 def list_events(service, target_date: date) -> list[dict]:

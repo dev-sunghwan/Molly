@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -33,8 +33,8 @@ def main() -> None:
     args = parser.parse_args()
 
     today = utils._today_local()
-    start_date = utils.parse_date(args.start) if args.start else (today - timedelta(days=30))
-    end_date = utils.parse_date(args.end) if args.end else (today + timedelta(days=180))
+    start_date = date.fromisoformat(args.start) if args.start else (today - timedelta(days=30))
+    end_date = date.fromisoformat(args.end) if args.end else (today + timedelta(days=180))
     calendar_keys = _normalize_calendar_args(args.calendar)
 
     summary, details = calendar_sync.sync_local_to_google(

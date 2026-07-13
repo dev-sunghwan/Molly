@@ -1,0 +1,9 @@
+[Unit]
+Description=Molly daily local-to-Google calendar alignment
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/sunghwan/projects/Molly
+ExecStart=/home/sunghwan/projects/Molly/.venv/bin/python /home/sunghwan/projects/Molly/scripts/sync_local_to_google_calendar.py --apply --details 50

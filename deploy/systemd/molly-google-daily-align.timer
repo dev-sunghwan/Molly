@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Molly Google Calendar alignment once per day
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+Persistent=true
+RandomizedDelaySec=20min
+Unit=molly-google-daily-align.service
+
+[Install]
+WantedBy=timers.target
