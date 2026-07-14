@@ -11,6 +11,8 @@ Returns a dict with key "cmd" and relevant fields, or a dict with "error" key.
 from __future__ import annotations
 
 import re
+from datetime import date
+
 import config
 import utils
 
@@ -387,6 +389,10 @@ def _parse_add(text: str) -> dict:
     if "every" in lower_tokens:
         return _parse_add_recurring(tokens, cal_key, cal_token)
 
+    natural_multiday = _parse_add_natural_timed_multiday(tokens, cal_key, cal_token)
+    if natural_multiday is not None:
+        return natural_multiday
+
     # ── Detect multi-day: "to" keyword between two dates ─────────────────────
     if "to" in lower_tokens:
         to_idx = lower_tokens.index("to")
@@ -519,6 +525,68 @@ def _parse_add(text: str) -> dict:
             )
         }
 
+
+def _parse_add_natural_timed_multiday(tokens: list[str], cal_key: str, cal_token: str) -> dict | None:
+    """Parse layouts like: add YounHa 26 July 11am - 31 July 3:30pm Cubs camp."""
+    for start_idx in range(1, len(tokens)):
+        parsed_start = _parse_date_tokens(tokens, start_idx)
+        if parsed_start is None:
+            continue
+        start_date, after_start_date = parsed_start
+        if after_start_date >= len(tokens):
+            continue
+        start_time = utils.parse_clock_time(tokens[after_start_date])
+        if start_time is None:
+            continue
+        sep_idx = after_start_date + 1
+        if sep_idx >= len(tokens) or tokens[sep_idx].lower() not in {"-", "to", "–", "—"}:
+            continue
+        parsed_end = _parse_date_tokens(tokens, sep_idx + 1)
+        if parsed_end is None:
+            continue
+        end_date, after_end_date = parsed_end
+        if after_end_date >= len(tokens):
+            continue
+        end_time = utils.parse_clock_time(tokens[after_end_date])
+        if end_time is None:
+            continue
+        title_tokens = tokens[1:start_idx] + tokens[after_end_date + 1:]
+        title = " ".join(title_tokens).strip()
+        if not title:
+            return {
+                "error": (
+                    "❌ Event title cannot be empty.\n"
+                    "Example: add YounHa 26 July 11am - 31 July 3:30pm Cubs camp"
+                )
+            }
+        if end_date < start_date:
+            return {"error": "❌ End date cannot be before start date."}
+        return {
+            "cmd": "add",
+            "calendar": cal_key,
+            "calendar_display": cal_token,
+            "title": title,
+            "date": start_date,
+            "end_date": end_date,
+            "start": start_time,
+            "end": end_time,
+            "all_day": False,
+        }
+    return None
+
+
+def _parse_date_tokens(tokens: list[str], start_idx: int):
+    for width in (3, 2, 1):
+        end_idx = start_idx + width
+        if end_idx > len(tokens):
+            continue
+        candidate = " ".join(token.strip(".,") for token in tokens[start_idx:end_idx])
+        parsed = utils.parse_date(candidate.lower())
+        if parsed is not None:
+            return parsed, end_idx
+        if width == 1 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
+            return date.fromisoformat(candidate), end_idx
+    return None
 
 def _parse_add_recurring(tokens: list, cal_key: str, cal_token: str) -> dict:
     """

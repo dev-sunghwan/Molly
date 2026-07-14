@@ -62,6 +62,17 @@ def test_add_timed_multi_day():
     assert result["end"] == "16:00"
     assert result["all_day"] is False
 
+def test_add_timed_multi_day_with_title_after_range():
+    result = commands.parse("add Younha 26 July 11am - 31 July 3:30pm Cubs camp")
+    assert result["cmd"] == "add"
+    assert result["calendar"] == "younha"
+    assert result["title"] == "Cubs camp"
+    assert result["date"] == date(2026, 7, 26)
+    assert result["end_date"] == date(2026, 7, 31)
+    assert result["start"] == "11:00"
+    assert result["end"] == "15:30"
+    assert result["all_day"] is False
+
 def test_add_day_name():
     result = commands.parse("add HaNeul swimming Sat 08:00-09:00")
     assert result["cmd"] == "add"

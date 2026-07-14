@@ -33,6 +33,23 @@ def test_korean_create_request_ready():
     assert resolution.intent.time_range is not None
     assert resolution.intent.time_range.start == "17:00"
 
+def test_english_timed_multiday_create_request_ready():
+    resolution = telegram_nlu.parse_free_text_to_intent(
+        "Add Younha 26 July 11am - 31 July 3:30pm Cubs camp"
+    )
+
+    assert resolution is not None
+    assert resolution.status == ResolutionStatus.READY
+    assert resolution.intent.action == IntentAction.CREATE_EVENT
+    assert resolution.intent.target_calendar == "younha"
+    assert resolution.intent.title == "Cubs camp"
+    assert resolution.intent.target_date == date(2026, 7, 26)
+    assert resolution.intent.date_range is not None
+    assert resolution.intent.date_range.end == date(2026, 7, 31)
+    assert resolution.intent.time_range is not None
+    assert resolution.intent.time_range.start == "11:00"
+    assert resolution.intent.time_range.end == "15:30"
+
 
 def test_korean_create_request_needs_calendar_clarification():
     resolution = telegram_nlu.parse_free_text_to_intent("내일 오후 5시에 테니스 넣어줘")

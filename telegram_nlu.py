@@ -14,7 +14,7 @@ from datetime import timedelta
 import config
 from telegram_extraction import ExtractedTelegramDraft, build_extraction_prompt
 import utils
-from intent_models import IntentAction, IntentResolution, IntentSource, ResolutionStatus, ScheduleIntent, TimeRange
+from intent_models import DateRange, IntentAction, IntentResolution, IntentSource, ResolutionStatus, ScheduleIntent, TimeRange
 
 
 
@@ -342,20 +342,35 @@ def _parse_create_request(text: str, lowered: str) -> IntentResolution | None:
         return None
 
     calendar = _extract_calendar_alias(lowered)
-    target_date = _extract_relative_date(text, lowered)
-    time_range = _extract_natural_time(text)
-    title = _extract_title(text, lowered, calendar)
+    multiday = _extract_timed_multiday_create(text, lowered, calendar)
+    if multiday is not None:
+        target_date, end_date, time_range, title = multiday
+        intent = ScheduleIntent(
+            action=IntentAction.CREATE_EVENT,
+            source=IntentSource.TELEGRAM_FREE_TEXT,
+            raw_input=text,
+            target_calendar=calendar,
+            title=title,
+            target_date=target_date,
+            date_range=DateRange(start=target_date, end=end_date),
+            time_range=time_range,
+            metadata={"all_day": False, "nlu": "telegram"},
+        )
+    else:
+        target_date = _extract_relative_date(text, lowered)
+        time_range = _extract_natural_time(text)
+        title = _extract_title(text, lowered, calendar)
 
-    intent = ScheduleIntent(
-        action=IntentAction.CREATE_EVENT,
-        source=IntentSource.TELEGRAM_FREE_TEXT,
-        raw_input=text,
-        target_calendar=calendar,
-        title=title,
-        target_date=target_date,
-        time_range=time_range,
-        metadata={"all_day": time_range is None, "nlu": "telegram"},
-    )
+        intent = ScheduleIntent(
+            action=IntentAction.CREATE_EVENT,
+            source=IntentSource.TELEGRAM_FREE_TEXT,
+            raw_input=text,
+            target_calendar=calendar,
+            title=title,
+            target_date=target_date,
+            time_range=time_range,
+            metadata={"all_day": time_range is None, "nlu": "telegram"},
+        )
 
     missing = _missing_fields_for_create(intent, [])
 
@@ -369,6 +384,47 @@ def _parse_create_request(text: str, lowered: str) -> IntentResolution | None:
 
     return _ready(intent)
 
+
+def _extract_timed_multiday_create(
+    text: str,
+    lowered: str,
+    calendar: str | None,
+) -> tuple | None:
+    month_names = (
+        "january|february|march|april|may|june|july|august|"
+        "september|october|november|december|jan|feb|mar|apr|jun|jul|"
+        "aug|sep|sept|oct|nov|dec"
+    )
+    pattern = re.compile(
+        rf"\b(?P<start_day>\d{{1,2}})\s+"
+        rf"(?P<start_month>{month_names})\s+"
+        rf"(?P<start_time>\d{{1,2}}(?::\d{{2}})?\s*(?:am|pm))\s*"
+        rf"(?:-|to|–|—)\s*"
+        rf"(?P<end_day>\d{{1,2}})\s+"
+        rf"(?P<end_month>{month_names})\s+"
+        rf"(?P<end_time>\d{{1,2}}(?::\d{{2}})?\s*(?:am|pm))\b",
+        flags=re.IGNORECASE,
+    )
+    match = pattern.search(text)
+    if match is None:
+        return None
+
+    start_date = utils.parse_date(
+        f"{match.group('start_day')} {match.group('start_month')}".lower()
+    )
+    end_date = utils.parse_date(
+        f"{match.group('end_day')} {match.group('end_month')}".lower()
+    )
+    start_time = utils.parse_clock_time(match.group("start_time"))
+    end_time = utils.parse_clock_time(match.group("end_time"))
+    if start_date is None or end_date is None or start_time is None or end_time is None:
+        return None
+    if end_date < start_date:
+        return None
+
+    suffix_title = text[match.end():].strip(" ,." )
+    title = suffix_title or _extract_title(text[: match.start()], lowered, calendar)
+    return start_date, end_date, TimeRange(start=start_time, end=end_time), title
 
 def _looks_like_create_request(text: str, lowered: str) -> bool:
     markers = [

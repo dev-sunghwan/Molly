@@ -120,10 +120,13 @@ def add_event_result(service: LocalCalendarService, cmd: dict) -> tuple[str, Loc
                 else:
                     reply_time_str = f"{start_str}–{end_str}"
             recurring_label = "  (weekly recurring)" if cmd.get("recurrence") else ""
+            reply_date_prefix = ""
+            if not (end_date != cmd["date"] and not all_day):
+                reply_date_prefix = f"{utils.format_short_day_date(cmd['date'])}  "
             return (
                 f"ℹ️ Already exists in {cal_display}:\n"
                 f"  {title}\n"
-                f"  {utils.format_short_day_date(cmd['date'])}  {reply_time_str}{recurring_label}"
+                f"  {reply_date_prefix}{reply_time_str}{recurring_label}"
             ), _mutation_result_from_row(
                 operation="create",
                 row=existing,
@@ -169,10 +172,13 @@ def add_event_result(service: LocalCalendarService, cmd: dict) -> tuple[str, Loc
             reply_time_str = f"{cmd['start']}–{cmd['end']}"
 
     recurring_label = "  (weekly recurring)" if cmd.get("recurrence") else ""
+    reply_date_prefix = ""
+    if not (cmd.get("end_date") and cmd["end_date"] != cmd["date"] and not all_day):
+        reply_date_prefix = f"{utils.format_short_day_date(cmd['date'])}  "
     reply = (
         f"✅ Added to {cal_display}:\n"
         f"  {cmd['title']}\n"
-        f"  {utils.format_short_day_date(cmd['date'])}  {reply_time_str}{recurring_label}"
+        f"  {reply_date_prefix}{reply_time_str}{recurring_label}"
     )
 
     if not all_day:
